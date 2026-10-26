@@ -979,9 +979,8 @@ function openPowerMenu(anchor) {
   }
   if (i.configured && !i.error) {
     var lit = String(i.uid || "Off") !== "Off";
-    items.push('<div class="note">Locator light is ' + (lit ? "on" : "off") + "</div>");
-    items.push('<button role="menuitem" data-a="uid-off">Turn locator light off</button>');
-    items.push('<button role="menuitem" data-a="uid-on">Turn locator light on</button>');
+    items.push(lit ? '<button role="menuitem" data-a="uid-off">Turn locator light off</button>'
+                   : '<button role="menuitem" data-a="uid-on">Turn locator light on</button>');
     if (i.power_state === "Off") items.push('<button role="menuitem" data-a="poweron">Power on</button>');
   }
   if (!items.length) items.push('<div class="note">Nothing to control right now. Proxmox and iLO both need to be reachable.</div>');
