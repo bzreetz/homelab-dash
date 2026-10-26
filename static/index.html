@@ -1,0 +1,1089 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C2433">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Server</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='9' width='28' height='14' rx='3' fill='%232C374C'/%3E%3Ccircle cx='8' cy='16' r='2.5' fill='%2374E3A4'/%3E%3Crect x='14' y='12' width='2.5' height='8' rx='1' fill='%239DB7E0'/%3E%3Crect x='18.5' y='12' width='2.5' height='8' rx='1' fill='%239DB7E0'/%3E%3Crect x='23' y='12' width='2.5' height='8' rx='1' fill='%239DB7E0'/%3E%3C/svg%3E">
+<!--LIVE-->
+<style>
+@font-face{font-family:"Barlow";src:url(fonts/barlow-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Barlow";src:url(fonts/barlow-latin-500-normal.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Barlow";src:url(fonts/barlow-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(fonts/barlow-condensed-latin-500-normal.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(fonts/barlow-condensed-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(fonts/barlow-condensed-latin-700-normal.woff2) format("woff2");font-weight:700;font-display:swap}
+
+:root{
+  /* powder-coated steel */
+  --steel:#1C2433; --plate:#232D3F; --plate-2:#2C374C; --rule:#38455E; --rule-soft:#2A3447;
+  --ink:#E8EDF5; --ink-2:#A3AFC3; --ink-3:#75839C;
+  /* LED colours: the only colours that carry meaning */
+  --ok:#74E3A4; --warn:#F5BD4F; --bad:#FF7676; --uid:#62B3FF; --led-off:#3E4960;
+  --trace:#9DB7E0;
+  --cond:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{font-size:clamp(15px,0.45vw + 9px,24px);background:var(--steel);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--steel);color:var(--ink);font-family:var(--body);line-height:1.4;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--uid);outline-offset:2px;border-radius:4px}
+.wrap{max-width:2200px;margin:0 auto;padding:max(1.1rem,env(safe-area-inset-top)) max(clamp(16px,2.4vw,52px),env(safe-area-inset-right)) 2.5rem max(clamp(16px,2.4vw,52px),env(safe-area-inset-left))}
+.muted{color:var(--ink-2)} .faint{color:var(--ink-3)}
+.led{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;background:var(--led-off);flex:none;vertical-align:middle}
+.led.ok{background:var(--ok);box-shadow:0 0 .45rem rgba(116,227,164,.55)}
+.led.warn{background:var(--warn);box-shadow:0 0 .45rem rgba(245,189,79,.55)}
+.led.bad{background:var(--bad);box-shadow:0 0 .45rem rgba(255,118,118,.6)}
+.led.uid{background:var(--uid);box-shadow:0 0 .6rem rgba(98,179,255,.75)}
+.led.blink{animation:blink 1s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+
+/* ------------------------------------------------ header */
+.demo-note{background:var(--plate);border:1px dashed var(--rule);border-radius:6px;padding:.55rem .85rem;margin-bottom:1rem;color:var(--ink-2);font-size:.9rem}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem 2rem;flex-wrap:wrap}
+.who{min-width:0}
+.hostname{font:700 clamp(2.4rem,4.2vw,4.4rem)/.88 var(--cond);letter-spacing:-.01em;margin:0}
+.status{display:flex;align-items:center;gap:.55rem;margin-top:.55rem;font-size:1.05rem}
+.facts{display:flex;align-items:flex-end;gap:.6rem 2rem;flex-wrap:wrap}
+.fact{display:flex;flex-direction:column}
+.fact b{font:600 1.45rem/1.1 var(--cond)}
+.fact span{font-size:.82rem;color:var(--ink-3)}
+.fact.stale span{color:var(--warn)}
+.power-btn{display:inline-flex;align-items:center;gap:.5rem;background:var(--plate-2);border:1px solid var(--rule);border-radius:999px;padding:.45rem 1rem .45rem .75rem;cursor:pointer;font-weight:600}
+.power-btn svg{width:1rem;height:1rem}
+.alerts{list-style:none;margin:.9rem 0 0;padding:0;display:flex;flex-direction:column;gap:.3rem}
+.alerts li{display:flex;align-items:baseline;gap:.6rem;font-size:.95rem;color:var(--ink-2)}
+.alerts li .led{transform:translateY(.05rem)}
+.menu{position:absolute;z-index:20;min-width:15rem;background:var(--plate-2);border:1px solid var(--rule);border-radius:10px;padding:.35rem;box-shadow:0 20px 40px -12px rgba(0,0,0,.7)}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:.6rem .75rem;cursor:pointer}
+.menu button:hover{background:rgba(255,255,255,.06)}
+.menu button.danger{color:var(--bad)}
+.menu .note{padding:.5rem .75rem;color:var(--ink-3);font-size:.85rem;max-width:18rem}
+
+/* ------------------------------------------------ chassis (the hero) */
+.chassis{margin-top:1.4rem;display:grid;grid-template-columns:2.1rem minmax(0,1fr) 2.1rem;height:clamp(9rem,12.5vw,15.5rem);
+  background:linear-gradient(180deg,#3E4A61 0%,#333E54 7%,#2A3346 100%);border-radius:8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.13),inset 0 -2px 0 rgba(0,0,0,.35),0 24px 48px -26px rgba(0,0,0,.8)}
+.ear{display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:.7rem 0;background:linear-gradient(180deg,#36415A,#262E3F);border-radius:8px 0 0 8px;box-shadow:inset -1px 0 0 rgba(0,0,0,.35)}
+.ear.r{border-radius:0 8px 8px 0;box-shadow:inset 1px 0 0 rgba(0,0,0,.35)}
+.screw{width:.6rem;height:.6rem;border-radius:50%;background:radial-gradient(circle at 35% 35%,#8C99B0,#465166 72%);box-shadow:0 1px 0 rgba(0,0,0,.4)}
+.face{display:grid;grid-template-columns:auto minmax(0,5fr) minmax(0,2fr);gap:clamp(.6rem,1.3vw,1.6rem);padding:clamp(.5rem,.9vw,.95rem) clamp(.6rem,1.2vw,1.4rem);min-width:0}
+.panel{display:flex;flex-direction:column;justify-content:space-between;min-width:0;padding:.15rem 0}
+.model{font:600 1.05rem/1.15 var(--cond);color:var(--ink);white-space:nowrap}
+.serial{font-size:.78rem;color:var(--ink-3);white-space:nowrap}
+.btns{display:flex;gap:.9rem}
+.cbtn{display:flex;flex-direction:column;align-items:center;gap:.35rem;background:none;border:0;padding:.25rem;cursor:default;color:var(--ink-3);font-size:.72rem}
+.cbtn.click{cursor:pointer}
+.cbtn .cap{width:1.55rem;height:1.55rem;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 40% 35%,#46526A,#262E3E 75%);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.5)}
+.cbtn .cap .led{width:.55rem;height:.55rem}
+.bays{display:grid;grid-template-columns:repeat(var(--bays,8),minmax(0,1fr));gap:clamp(.18rem,.35vw,.4rem);background:#151B26;border-radius:5px;padding:clamp(.2rem,.35vw,.4rem);box-shadow:inset 0 2px 8px rgba(0,0,0,.6);min-width:0}
+.bay{position:relative;display:flex;flex-direction:column;align-items:center;gap:.4rem;padding:.45rem 0 .3rem;border-radius:3px;min-width:0;overflow:hidden;
+  background:linear-gradient(180deg,#3D4A5F,#2F394C);box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+.bay .led{width:.48rem;height:.48rem}
+.bay .tag{flex:1;min-height:0;writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:flex-end;gap:.5rem;white-space:nowrap;overflow:hidden;font:500 clamp(.7rem,.95vw,1.05rem)/1 var(--cond);color:var(--ink-2)}
+.bay .tag b{font-weight:600;color:var(--ink)}
+.bay .grip{width:60%;height:.25rem;border-radius:2px;background:rgba(0,0,0,.35);flex:none}
+.bay.empty{background:repeating-linear-gradient(180deg,#272F3F 0 3px,#1D2431 3px 6px);box-shadow:none}
+.vents{border-radius:4px;background-color:#252D3D;background-image:radial-gradient(circle,#151B26 38%,transparent 41%);background-size:.62rem .62rem;box-shadow:inset 0 1px 3px rgba(0,0,0,.45)}
+
+/* ------------------------------------------------ vitals strip */
+.vitals-clip{overflow:hidden;margin-top:1.6rem;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.vitals{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:-1px 0 0 -1px}
+.vital{border-left:1px solid var(--rule-soft);border-top:1px solid var(--rule-soft);padding:1rem clamp(.8rem,1.4vw,1.6rem) .9rem;min-width:0}
+.vital h3{margin:0;font:500 .95rem var(--body);color:var(--ink-2)}
+.big{font:600 clamp(2.2rem,3vw,3.2rem)/1 var(--cond);margin-top:.35rem;white-space:nowrap}
+.big small{font-size:.5em;font-weight:500;color:var(--ink-2);margin-left:.12em}
+.sub{font-size:.86rem;color:var(--ink-3);margin-top:.3rem;min-height:2.4em}
+.sub .k{display:inline-block;width:.6rem;height:2px;vertical-align:middle;margin-right:.3rem}
+.spark{display:block;width:100%;height:2.6rem;margin-top:.55rem;overflow:visible}
+.spark .line{fill:none;stroke:var(--trace);stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.spark .line.alt{stroke:var(--ink-3);stroke-width:1.3}
+.spark .area{fill:var(--trace);opacity:.1}
+.spark .base{stroke:var(--rule-soft);stroke-width:1;vector-effect:non-scaling-stroke}
+
+/* ------------------------------------------------ main grid */
+.main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);grid-template-areas:"a b" "c b";gap:2.4rem clamp(1.5rem,3vw,3.5rem);margin-top:2.2rem;align-items:start}
+.col{display:flex;flex-direction:column;gap:2.4rem;min-width:0}
+.col-a{grid-area:a}.col-b{grid-area:b}.col-c{grid-area:c}
+@media (min-width:1600px) and (min-aspect-ratio:4/3){
+  .main{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr);grid-template-areas:"a b c"}
+  .chassis{height:clamp(9rem,9.5vw,14rem)}
+}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--rule);padding-bottom:.45rem}
+.sec-head h2{margin:0;font:600 1.6rem/1 var(--cond)}
+.sec-head .count{color:var(--ink-3);font-size:.9rem;text-align:right}
+.sub-head{margin:1.2rem 0 .5rem;font:500 .95rem var(--body);color:var(--ink-2)}
+.hint{color:var(--ink-3);font-size:.92rem;padding:.9rem 0;max-width:42rem}
+.hint code{font-size:.85em;color:var(--ink-2);background:var(--plate);padding:.05rem .3rem;border-radius:3px}
+
+/* guests */
+.ghead,.grow{display:grid;grid-template-columns:.9rem minmax(0,1fr) 8.5rem 9rem 5.5rem 1rem;align-items:center;gap:1rem}
+.ghead{padding:.55rem .35rem .35rem;font-size:.8rem;color:var(--ink-3)}
+.guest{border-bottom:1px solid var(--rule-soft)}
+.grow{width:100%;text-align:left;background:none;border:0;padding:.7rem .35rem;cursor:pointer;color:var(--ink)}
+.grow:hover{background:rgba(255,255,255,.025)}
+.gname{display:flex;align-items:baseline;gap:.6rem;min-width:0}
+.gname b{font:600 1.22rem/1.15 var(--cond);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gname span{font-size:.8rem;color:var(--ink-3);white-space:nowrap}
+.guest.down .gname b{color:var(--ink-2)}
+.meter{display:flex;align-items:center;gap:.55rem}
+.meter i{flex:1;height:4px;border-radius:2px;background:var(--rule-soft);overflow:hidden;position:relative}
+.meter i em{position:absolute;inset:0 auto 0 0;background:var(--trace);border-radius:2px}
+.meter i em.warn{background:var(--warn)} .meter i em.bad{background:var(--bad)}
+.meter span{font-size:.9rem;min-width:2.7rem;text-align:right}
+.gmem,.gup{font-size:.92rem;color:var(--ink-2);white-space:nowrap}
+.chev{width:.7rem;height:.7rem;color:var(--ink-3);transition:transform .18s ease}
+.guest.open .chev{transform:rotate(90deg)}
+.gdetail{display:none;padding:.2rem .35rem 1.1rem 2.25rem}
+.guest.open .gdetail{display:block}
+.facts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:.6rem 1.5rem;margin:0}
+.facts-grid div{min-width:0}
+.facts-grid dt{font-size:.78rem;color:var(--ink-3)}
+.facts-grid dd{margin:0;font-size:.95rem;overflow-wrap:anywhere}
+.actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+.btn{background:var(--plate-2);border:1px solid var(--rule);border-radius:7px;padding:.5rem .95rem;font-weight:600;cursor:pointer;color:var(--ink)}
+.btn:hover{border-color:#4C5B78}
+.btn.danger{color:var(--bad)}
+.btn.primary{background:var(--ink);color:var(--steel);border-color:var(--ink)}
+.btn.primary.danger{background:var(--bad);border-color:var(--bad);color:#2A1214}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.controls-off{font-size:.85rem;color:var(--ink-3);margin-top:.9rem}
+
+/* cooling */
+.fans{display:grid;grid-template-columns:repeat(auto-fill,minmax(3.9rem,1fr));gap:1rem .4rem;margin-top:1rem}
+.fan{display:flex;flex-direction:column;align-items:center;text-align:center}
+.fan .disc{position:relative;width:3.7rem;height:3.7rem}
+.fan .disc svg{position:absolute;inset:0;width:100%;height:100%}
+.fan .disc .rotor{will-change:transform}
+.fan b{font:600 1.35rem/1 var(--cond);margin-top:.45rem}
+.fan span{font-size:.75rem;color:var(--ink-3)}
+.fan.bad b{color:var(--bad)}
+.trow{display:grid;grid-template-columns:minmax(0,9rem) minmax(0,1fr) 3.4rem;align-items:center;gap:.9rem;padding:.32rem 0}
+.trow .n{font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .v{text-align:right;font:600 1.1rem var(--cond)}
+.trow .v.warn{color:var(--warn)} .trow .v.bad{color:var(--bad)}
+.tbar{position:relative;height:5px;border-radius:3px;background:var(--rule-soft)}
+.tbar em{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--ink-3)}
+.tbar em.warn{background:var(--warn)} .tbar em.bad{background:var(--bad)}
+.tbar i{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink-2);opacity:.6;border-radius:1px}
+.linkish{background:none;border:0;padding:.4rem 0;color:var(--trace);cursor:pointer;font-size:.9rem}
+.line-row{display:grid;grid-template-columns:.9rem minmax(0,1fr) auto;gap:.8rem;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--rule-soft)}
+.line-row:last-child{border-bottom:0}
+.line-row .t{min-width:0}
+.line-row .t b{font-weight:600}
+.line-row .t span{display:block;font-size:.82rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.line-row .r{text-align:right;font-size:.92rem;color:var(--ink-2);white-space:nowrap}
+
+/* storage */
+.pool{padding:.6rem 0;border-bottom:1px solid var(--rule-soft)}
+.pool:last-child{border-bottom:0}
+.pool .top-line{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.pool .top-line b{font:600 1.15rem var(--cond)}
+.pool .top-line b span{font:400 .8rem var(--body);color:var(--ink-3);margin-left:.45rem}
+.pool .top-line .r{font-size:.92rem;color:var(--ink-2);white-space:nowrap}
+.pbar{height:6px;border-radius:3px;background:var(--rule-soft);margin-top:.45rem;overflow:hidden}
+.pbar em{display:block;height:100%;background:var(--trace);border-radius:3px}
+.pbar em.warn{background:var(--warn)} .pbar em.bad{background:var(--bad)}
+
+/* system footer */
+.system{margin-top:2.6rem;border-top:1px solid var(--rule);padding-top:1rem}
+
+/* dialog + toast */
+.scrim{position:fixed;inset:0;background:rgba(10,14,22,.62);display:none;align-items:center;justify-content:center;padding:1rem;z-index:50}
+.scrim.show{display:flex}
+.dialog{width:min(26rem,100%);background:var(--plate);border:1px solid var(--rule);border-radius:12px;padding:1.4rem;box-shadow:0 30px 60px -20px rgba(0,0,0,.8)}
+.dialog h2{margin:0;font:600 1.6rem/1.1 var(--cond)}
+.dialog p{margin:.5rem 0 0;color:var(--ink-2)}
+.dialog label{display:block;margin-top:1.1rem;font-size:.85rem;color:var(--ink-2)}
+.dialog input{display:block;width:100%;margin-top:.35rem;padding:.65rem .8rem;font:600 1.3rem var(--cond);letter-spacing:.2em;color:var(--ink);background:var(--steel);border:1px solid var(--rule);border-radius:7px}
+.dialog .err{color:var(--bad);font-size:.9rem;margin-top:.6rem;min-height:1.2em}
+.dialog .row{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1rem}
+.toast{position:fixed;left:50%;bottom:max(1.4rem,env(safe-area-inset-bottom));transform:translate(-50%,1rem);opacity:0;pointer-events:none;background:var(--ink);color:var(--steel);font-weight:600;padding:.65rem 1.1rem;border-radius:999px;transition:opacity .2s,transform .2s;z-index:60;max-width:calc(100% - 2rem)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.err{background:var(--bad);color:#2A1214}
+
+/* ------------------------------------------------ responsive */
+@media (max-width:1180px){
+  .main{grid-template-columns:minmax(0,1fr);grid-template-areas:"a" "b" "c"}
+  .vitals{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .vital{grid-column:span 2}
+  .vital:nth-child(n+4){grid-column:span 3}
+}
+@media (max-width:760px){
+  .chassis{height:auto;grid-template-columns:1.2rem minmax(0,1fr) 1.2rem}
+  .screw{width:.45rem;height:.45rem}
+  .face{grid-template-columns:minmax(0,1fr);gap:.7rem}
+  .panel{flex-direction:row;align-items:center;gap:.8rem}
+  .btns{gap:.4rem}
+  .bays{height:9.5rem}
+  .vents{display:none}
+  .vitals{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .vital,.vital:nth-child(n+4){grid-column:span 1}
+  .vital:last-child{grid-column:span 2}
+  .ghead{display:none}
+  .grow{grid-template-columns:.9rem minmax(0,1fr) 5.2rem 1rem;gap:.7rem}
+  .gmem,.gup{display:none}
+  .gdetail{padding-left:1.6rem}
+  .facts{gap:.6rem 1.4rem}
+  .fans{grid-template-columns:repeat(auto-fill,minmax(3.2rem,1fr));gap:.9rem .3rem}
+  .fan .disc{width:3rem;height:3rem}
+}
+@media (max-width:420px){
+  .panel .model-wrap{display:none}
+  .bay .tag span{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .led.blink{animation:none}
+  .chev,.toast{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="demo-note" id="demo-note" hidden>Showing demo data. Run <code>server.py</code> with your config to see your own server.</div>
+
+  <header class="top">
+    <div class="who">
+      <h1 class="hostname" id="hostname">&nbsp;</h1>
+      <div class="status" id="status"><span class="led"></span><span>Connecting…</span></div>
+    </div>
+    <div class="facts" id="facts"></div>
+  </header>
+  <ul class="alerts" id="alerts"></ul>
+
+  <div class="chassis" id="chassis" aria-label="Server front panel">
+    <div class="ear"><span class="screw"></span><span class="screw"></span></div>
+    <div class="face">
+      <div class="panel">
+        <div class="model-wrap"><div class="model" id="model">Server</div><div class="serial" id="serial">&nbsp;</div></div>
+        <div class="btns">
+          <button class="cbtn" id="led-power" type="button"><span class="cap"><span class="led"></span></span>Power</button>
+          <span class="cbtn" id="led-health"><span class="cap"><span class="led"></span></span>Health</span>
+          <span class="cbtn" id="led-net"><span class="cap"><span class="led"></span></span>Network</span>
+          <button class="cbtn" id="led-uid" type="button"><span class="cap"><span class="led"></span></span>Locate</button>
+        </div>
+      </div>
+      <div class="bays" id="bays"></div>
+      <div class="vents"></div>
+    </div>
+    <div class="ear r"><span class="screw"></span><span class="screw"></span></div>
+  </div>
+
+  <div class="vitals-clip"><div class="vitals" id="vitals"></div></div>
+
+  <div class="main">
+    <div class="col col-a">
+      <section aria-labelledby="h-guests">
+        <div class="sec-head"><h2 id="h-guests">Virtual machines and containers</h2><span class="count" id="guest-count"></span></div>
+        <div class="ghead" id="ghead"><span></span><span>Name</span><span>CPU</span><span>Memory</span><span>Uptime</span><span></span></div>
+        <div id="guests"></div>
+      </section>
+    </div>
+    <div class="col col-b">
+      <section aria-labelledby="h-cool">
+        <div class="sec-head"><h2 id="h-cool">Power and cooling</h2><span class="count" id="cool-count"></span></div>
+        <div id="cooling"></div>
+      </section>
+    </div>
+    <div class="col col-c">
+      <section aria-labelledby="h-storage">
+        <div class="sec-head"><h2 id="h-storage">Storage</h2><span class="count" id="storage-count"></span></div>
+        <div id="storage"></div>
+      </section>
+      <section aria-labelledby="h-devices" id="devices-sec" hidden>
+        <div class="sec-head"><h2 id="h-devices">Other devices</h2><span class="count" id="devices-count"></span></div>
+        <div id="devices"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="system" aria-label="System details">
+    <dl class="facts-grid" id="system"></dl>
+  </section>
+</div>
+
+<div class="menu" id="power-menu" role="menu" hidden></div>
+
+<div class="scrim" id="scrim">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <h2 id="dlg-title"></h2>
+    <p id="dlg-body"></p>
+    <form id="dlg-form">
+      <label for="dlg-pin">PIN</label>
+      <input id="dlg-pin" type="password" inputmode="numeric" autocomplete="off" required>
+      <div class="err" id="dlg-err" role="alert"></div>
+      <div class="row">
+        <button class="btn" type="button" id="dlg-cancel">Cancel</button>
+        <button class="btn primary" type="submit" id="dlg-go"></button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+"use strict";
+
+var LIVE = !!window.DASH_LIVE;
+var S = null;            // latest snapshot from the server (or demo)
+var lastFetchOk = 0;
+var openGuests = {};     // keys of expanded rows
+var showAllTemps = false;
+var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function $(id) { return document.getElementById(id); }
+function g(obj, path, dflt) {
+  var cur = obj, parts = path.split(".");
+  for (var i = 0; i < parts.length; i++) { if (cur == null) return dflt; cur = cur[parts[i]]; }
+  return cur == null ? dflt : cur;
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function setHTML(el, html) { if (el.__h !== html) { el.innerHTML = html; el.__h = html; } }
+
+/* ---------------------------------------------------------------- formatting */
+function bytes(b, dec) {
+  if (b == null) return "–";
+  var u = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"], i = 0, v = b;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  var d = dec != null ? dec : (v >= 100 || i === 0 ? 0 : 1);
+  return v.toFixed(d).replace(/\.0$/, "") + " " + u[i];
+}
+function bytesPair(used, total) {
+  if (used == null || !total) return "–";
+  var u = ["B", "KiB", "MiB", "GiB", "TiB"], i = 0, v = total;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  var div = Math.pow(1024, i), a = used / div;
+  return (a >= 100 ? a.toFixed(0) : a.toFixed(1)).replace(/\.0$/, "") + " / " + (v >= 100 ? v.toFixed(0) : v.toFixed(1)).replace(/\.0$/, "") + " " + u[i];
+}
+function driveSize(b) {
+  if (!b) return "";
+  if (b >= 1e12) return (b / 1e12).toFixed(b >= 1e13 ? 0 : 1).replace(/\.0$/, "") + " TB";
+  return Math.round(b / 1e9) + " GB";
+}
+function rate(Bps) {
+  if (Bps == null) return "–";
+  var b = Bps * 8;
+  if (b >= 1e9) return (b / 1e9).toFixed(2) + " Gb/s";
+  if (b >= 1e6) return (b / 1e6).toFixed(b >= 1e8 ? 0 : 1) + " Mb/s";
+  return Math.max(0, b / 1e3).toFixed(0) + " kb/s";
+}
+function uptime(s) {
+  if (!s) return "–";
+  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return d + (d === 1 ? " day, " : " days, ") + h + (h === 1 ? " hour" : " hours");
+  if (h) return h + " hr " + m + " min";
+  return Math.max(1, m) + " min";
+}
+function upShort(s) {
+  if (!s) return "–";
+  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return d + "d " + h + "h";
+  if (h) return h + "h " + m + "m";
+  return Math.max(1, m) + "m";
+}
+function ago(t) {
+  if (!t) return "never";
+  var s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  if (s < 60) return s + " s ago";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  return Math.round(s / 3600) + " hr ago";
+}
+function tempVal(c) { return S && S.temp_unit === "F" ? c * 9 / 5 + 32 : c; }
+function temp(c) { return c == null ? "–" : Math.round(tempVal(c)) + "°" + (S && S.temp_unit === "F" ? "F" : "C"); }
+function pct(f) { return f == null ? "–" : (f * 100 < 10 ? (f * 100).toFixed(1).replace(/\.0$/, "") : Math.round(f * 100)) + "%"; }
+function levelFor(frac, warn, bad) { return frac >= bad ? "bad" : frac >= warn ? "warn" : ""; }
+
+/* ---------------------------------------------------------------- sparklines */
+function spark(series, opts) {
+  opts = opts || {};
+  var t1 = S.now, t0 = t1 - 3600, all = [];
+  series.forEach(function (s) { s.pts = (s.pts || []).filter(function (p) { return p[0] >= t0 && p[1] != null; }); all = all.concat(s.pts); });
+  var svg = '<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><line class="base" x1="0" y1="29.5" x2="100" y2="29.5"/>';
+  if (all.length < 2) return svg + "</svg>";
+  var vals = all.map(function (p) { return p[1]; });
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (opts.zero) lo = 0;
+  if (opts.minSpan && hi - lo < opts.minSpan) { var mid = opts.zero ? opts.minSpan / 2 : (hi + lo) / 2; hi = mid + opts.minSpan / 2; lo = opts.zero ? 0 : mid - opts.minSpan / 2; }
+  var pad = (hi - lo) * 0.12; hi += pad; if (!opts.zero) lo -= pad;
+  var span = hi - lo || 1;
+  series.forEach(function (s, idx) {
+    // Wait for a couple of minutes of data so a fresh start doesn't draw a stray tick.
+    if (s.pts.length < 2 || s.pts[s.pts.length - 1][0] - s.pts[0][0] < 120) return;
+    var d = "", fx = null, lx = null;
+    s.pts.forEach(function (p, i) {
+      var x = (p[0] - t0) / 3600 * 100, y = 29 - (p[1] - lo) / span * 27;
+      if (fx === null) fx = x; lx = x;
+      d += (i ? "L" : "M") + x.toFixed(2) + "," + y.toFixed(2);
+    });
+    if (idx === 0) svg += '<path class="area" d="' + d + "L" + lx.toFixed(2) + ",30L" + fx.toFixed(2) + ',30Z"/>';
+    svg += '<path class="line' + (s.alt ? " alt" : "") + '" d="' + d + '"/>';
+  });
+  return svg + "</svg>";
+}
+
+/* ---------------------------------------------------------------- alerts */
+function alertsFor(s) {
+  var a = [], p = s.proxmox || {}, i = s.ilo || {};
+  if (p.configured && p.error) a.push(["bad", p.error]);
+  if (i.configured && i.error) a.push(["warn", i.error]);
+  if (!p.configured && !i.configured) a.push(["warn", "Nothing is set up yet. Add your Proxmox token and iLO login to config.json."]);
+  if (i.health && i.health !== "OK") a.push([i.health === "Critical" ? "bad" : "warn", "iLO reports system health as " + i.health]);
+  (s.disks || []).forEach(function (d) {
+    var h = String(d.health || "").toUpperCase();
+    if (h && h !== "PASSED" && h !== "OK" && h !== "UNKNOWN") a.push(["bad", d.dev.replace("/dev/", "") + " failed its SMART health check (" + d.health + ")"]);
+    else if (d.life != null && d.life <= 10) a.push(["warn", d.dev.replace("/dev/", "") + " has " + d.life + "% of its life left"]);
+  });
+  (i.temps || []).forEach(function (t) {
+    if (t.warn && t.c >= t.warn) a.push(["bad", t.name + " is at " + temp(t.c) + ", past its " + temp(t.warn) + " limit"]);
+    else if (t.warn && t.c >= t.warn - 5) a.push(["warn", t.name + " is at " + temp(t.c) + ", close to its " + temp(t.warn) + " limit"]);
+  });
+  (i.fans || []).forEach(function (f) { if (f.health && f.health !== "OK") a.push(["warn", f.name + " reports " + f.health]); });
+  (i.psus || []).forEach(function (ps) { if (ps.present && ps.health && ps.health !== "OK") a.push(["warn", ps.name + " reports " + ps.health + " (often just an unplugged cord)"]); });
+  (p.storage || []).forEach(function (st) {
+    if (st.status && st.status !== "available") a.push(["warn", "Storage " + st.name + " is " + st.status]);
+    else if (st.total) {
+      var f = st.used / st.total;
+      if (f >= 0.97) a.push(["bad", "Storage " + st.name + " is " + pct(f) + " full"]);
+      else if (f >= 0.9) a.push(["warn", "Storage " + st.name + " is " + pct(f) + " full"]);
+    }
+  });
+  var h = p.host || {};
+  if (h.mem_total && h.mem_used / h.mem_total >= 0.92) a.push(["warn", "Memory is " + pct(h.mem_used / h.mem_total) + " used"]);
+  (p.nodes || []).forEach(function (n) { if (!n.online) a.push(["bad", "Node " + n.name + " is offline"]); });
+  if (p.configured && p.updated && s.now - p.updated > 20 && !p.error) a.push(["warn", "Proxmox data is " + ago(p.updated).replace(" ago", "") + " old"]);
+  return a;
+}
+
+/* ---------------------------------------------------------------- render: header */
+function renderHeader(s, alerts) {
+  var p = s.proxmox || {}, h = p.host || {}, i = s.ilo || {};
+  $("hostname").textContent = s.title || "homelab";
+  document.title = s.title || "Server";
+  var bad = alerts.filter(function (a) { return a[0] === "bad"; }).length;
+  var cls = bad ? "bad" : alerts.length ? "warn" : "ok";
+  var text = !alerts.length ? "All systems normal" : alerts.length === 1 ? "1 thing needs a look" : alerts.length + " things need a look";
+  if (LIVE && Date.now() - lastFetchOk > 15000) { cls = "bad"; text = "Lost contact with the dashboard service"; }
+  setHTML($("status"), '<span class="led ' + cls + '"></span><span>' + esc(text) + "</span>");
+  setHTML($("alerts"), alerts.map(function (a) { return '<li><span class="led ' + a[0] + '"></span><span>' + esc(a[1]) + "</span></li>"; }).join(""));
+
+  var f = [];
+  if (h.uptime) f.push('<div class="fact"><b>' + esc(uptime(h.uptime)) + "</b><span>Uptime</span></div>");
+  if ((p.nodes || []).length > 1) {
+    var on = p.nodes.filter(function (n) { return n.online; }).length;
+    f.push('<div class="fact"><b>' + on + " of " + p.nodes.length + "</b><span>Nodes online</span></div>");
+  }
+  if (h.pve_version) f.push('<div class="fact"><b>' + esc(h.pve_version) + "</b><span>Proxmox VE</span></div>");
+  var newest = Math.max(p.updated || 0, i.updated || 0);
+  var stale = LIVE && (!newest || s.now - newest > 20);
+  f.push('<div class="fact' + (stale ? " stale" : "") + '" id="updated-fact"><b id="updated-ago">' + (LIVE ? esc(ago(newest)) : "Live") + "</b><span>Updated</span></div>");
+  if (s.manage) f.push('<div class="fact"><button class="power-btn" id="power-btn" type="button" aria-haspopup="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>Power</button></div>');
+  setHTML($("facts"), f.join(""));
+  var pb = $("power-btn");
+  if (pb && !pb.__wired) { pb.__wired = true; pb.addEventListener("click", function (e) { e.stopPropagation(); openPowerMenu(pb); }); }
+}
+
+/* ---------------------------------------------------------------- render: chassis */
+function renderChassis(s, alerts) {
+  var p = s.proxmox || {}, i = s.ilo || {}, h = p.host || {};
+  $("model").textContent = i.model || (h.cpu_model ? h.cpus + "-thread server" : "Server");
+  $("serial").textContent = i.serial ? "Serial " + i.serial : (s.title || "");
+
+  var powerCls = "";
+  if (i.power_state === "Off") powerCls = "warn";
+  else if ((p.configured && !p.error && p.host) || i.power_state === "On") powerCls = "ok";
+  var bad = alerts.some(function (a) { return a[0] === "bad"; });
+  var healthCls = !p.host && !i.model ? "" : bad ? "bad" : alerts.length ? "warn" : "ok";
+  var netCls = s.net && (s.net["in"] + s.net.out) > 0 ? "ok" : "";
+  var uid = String(i.uid || "Off");
+  var uidCls = uid === "Lit" ? "uid" : uid === "Blinking" ? "uid blink" : "";
+  setLed("led-power", powerCls, "Power: " + (i.power_state || (powerCls === "ok" ? "On" : "unknown")));
+  setLed("led-health", healthCls, "Health: " + (healthCls === "ok" ? "OK" : healthCls === "" ? "unknown" : alerts.length + " issue(s)"));
+  setLed("led-net", netCls, "Network: " + (s.net ? rate(s.net["in"]) + " in, " + rate(s.net.out) + " out" : "no data"));
+  setLed("led-uid", uidCls, "Locator light: " + uid);
+  $("led-uid").classList.toggle("click", !!(s.manage && i.configured && !i.error));
+  $("led-power").classList.toggle("click", !!s.manage);
+
+  var bays = s.bays || 8, disks = s.disks || [], html = "";
+  $("bays").style.setProperty("--bays", bays);
+  for (var b = 0; b < bays; b++) {
+    var d = disks[b];
+    if (!d) { html += '<div class="bay empty" title="Empty bay"></div>'; continue; }
+    var hh = String(d.health || "").toUpperCase();
+    var cls = hh === "PASSED" || hh === "OK" ? (d.life != null && d.life <= 10 ? "warn" : "ok") : hh === "UNKNOWN" || !hh ? "" : "bad";
+    var tip = d.dev + "  " + (d.model || "") + "  " + driveSize(d.size) + "  " + (d.health || "health unknown");
+    html += '<div class="bay" title="' + esc(tip) + '"><span class="led ' + cls + '"></span><span class="tag"><b>' +
+      esc(d.dev.replace("/dev/", "")) + "</b><span>" + esc(driveSize(d.size)) + '</span></span><span class="grip"></span></div>';
+  }
+  setHTML($("bays"), html);
+}
+function setLed(id, cls, label) {
+  var el = $(id), led = el.querySelector(".led");
+  led.className = "led " + cls;
+  el.setAttribute("aria-label", label);
+  el.title = label;
+}
+
+/* ---------------------------------------------------------------- render: vitals */
+function renderVitals(s) {
+  var p = s.proxmox || {}, h = p.host || {}, i = s.ilo || {}, H = s.history || {}, v = [];
+
+  var cpuSub = [];
+  if (h.loadavg) cpuSub.push("Load " + h.loadavg[0].toFixed(2));
+  if (h.cpus) cpuSub.push(h.cpus + " threads" + (h.sockets > 1 ? " on " + h.sockets + " sockets" : ""));
+  v.push(vital("Processor", h.cpu != null ? big(Math.round(h.cpu * 100), "%") : dash(), cpuSub.join(", "),
+    spark([{ pts: H.cpu }], { zero: true, minSpan: 0.2 })));
+
+  var mf = h.mem_total ? h.mem_used / h.mem_total : null;
+  v.push(vital("Memory", mf != null ? big(bytes(h.mem_used, 1).split(" ")[0], bytes(h.mem_used, 1).split(" ")[1]) : dash(),
+    h.mem_total ? "of " + bytes(h.mem_total, 0) + ", " + pct(mf) + " used" : "", spark([{ pts: H.mem }], { minSpan: 0.1 })));
+
+  var e = s.energy, pSub = [];
+  if (e) { pSub.push("About " + e.kwh_month + " kWh a month"); if (e.cost_month != null) pSub.push(e.currency + e.cost_month.toFixed(0) + " a month"); }
+  else if (!i.configured) pSub.push("Needs iLO");
+  v.push(vital("Power draw", i.watts != null ? big(Math.round(i.watts), "W") : dash(), pSub.join(", "),
+    spark([{ pts: H.power }], { minSpan: 20 })));
+
+  var temps = i.temps || [], inlet = null, hottest = null;
+  temps.forEach(function (t) {
+    if (!inlet && /inlet|ambient/i.test(t.name)) inlet = t;
+    if (!/inlet|ambient/i.test(t.name) && (!hottest || t.c > hottest.c)) hottest = t;
+  });
+  v.push(vital("Inlet air", inlet ? big(Math.round(tempVal(inlet.c)), "°" + (s.temp_unit === "F" ? "F" : "C")) : dash(),
+    hottest ? "Hottest inside: " + hottest.name + " at " + temp(hottest.c) : (i.configured ? "" : "Needs iLO"),
+    spark([{ pts: H.inlet && H.inlet.map(function (q) { return [q[0], tempVal(q[1])]; }) }], { minSpan: 3 })));
+
+  var n = s.net, nin = n ? n.series.map(function (q) { return [q[0], q[1]]; }) : [], nout = n ? n.series.map(function (q) { return [q[0], q[2]]; }) : [];
+  v.push(vital("Network", n ? big(rate(n["in"]).split(" ")[0], rate(n["in"]).split(" ")[1] + " in") : dash(),
+    n ? '<span class="k" style="background:var(--trace)"></span>In ' + esc(rate(n["in"])) + '<span class="k" style="background:var(--ink-3);margin-left:.9rem"></span>Out ' + esc(rate(n.out)) : "",
+    spark([{ pts: nin }, { pts: nout, alt: true }], { zero: true, minSpan: 1000 }), true));
+  setHTML($("vitals"), v.join(""));
+}
+function vital(label, bigHtml, sub, sparkSvg, rawSub) {
+  return '<div class="vital"><h3>' + esc(label) + "</h3>" + bigHtml + '<div class="sub">' + (rawSub ? sub : esc(sub)) + "</div>" + sparkSvg + "</div>";
+}
+function big(n, unit) { return '<div class="big">' + esc(n) + (unit ? "<small>" + esc(unit) + "</small>" : "") + "</div>"; }
+function dash() { return '<div class="big faint">–</div>'; }
+
+/* ---------------------------------------------------------------- render: guests (keyed, keeps open rows) */
+var CHEV = '<svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function renderGuests(s) {
+  var p = s.proxmox || {}, box = $("guests");
+  $("ghead").hidden = !(p.guests && p.guests.length);
+  if (!p.configured) {
+    setHTML(box, '<p class="hint">Proxmox isn\'t set up yet. Add its address and an API token to <code>config.json</code>, then restart the dashboard.</p>');
+    $("guest-count").textContent = "";
+    return;
+  }
+  if (!p.guests) { setHTML(box, '<p class="hint">Waiting for Proxmox…</p>'); return; }
+  if (box.__h) { box.innerHTML = ""; box.__h = null; }
+
+  var list = p.guests.filter(function (x) { return !x.template; });
+  var running = list.filter(function (x) { return x.status === "running"; }).length;
+  var tpl = p.guests.length - list.length;
+  $("guest-count").textContent = running + " running, " + (list.length - running) + " stopped" + (tpl ? ", " + tpl + " template" + (tpl > 1 ? "s" : "") : "");
+  if (!list.length) { setHTML(box, '<p class="hint">No VMs or containers yet. Create one in Proxmox and it shows up here.</p>'); return; }
+
+  var multiNode = (p.nodes || []).length > 1, seen = {};
+  list.forEach(function (x) {
+    var key = x.type + ":" + x.vmid;
+    seen[key] = true;
+    var el = box.querySelector('[data-key="' + key + '"]');
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "guest";
+      el.setAttribute("data-key", key);
+      el.innerHTML = '<button class="grow" type="button" aria-expanded="false"><span class="led"></span><span class="gname"><b></b><span></span></span>' +
+        '<span class="meter"><i><em></em></i><span></span></span><span class="gmem"></span><span class="gup"></span>' + CHEV + "</button>" +
+        '<div class="gdetail"><dl class="facts-grid"></dl><div class="actions"></div></div>';
+      el.querySelector(".grow").addEventListener("click", function () {
+        var open = !el.classList.contains("open");
+        el.classList.toggle("open", open);
+        this.setAttribute("aria-expanded", open);
+        if (open) openGuests[key] = true; else delete openGuests[key];
+      });
+      el.querySelector(".actions").addEventListener("click", function (e) {
+        var b = e.target.closest("button[data-op]");
+        if (b) guestAction(key, b.getAttribute("data-op"));
+      });
+    }
+    box.appendChild(el); // keeps order in sync without rebuilding
+    var up = x.status === "running";
+    el.classList.toggle("down", !up);
+    el.classList.toggle("open", !!openGuests[key]);
+    el.querySelector(".grow").setAttribute("aria-expanded", !!openGuests[key]);
+    var led = el.querySelector(".grow > .led");
+    led.className = "led " + (up ? "ok" : x.status === "paused" || x.lock ? "warn" : "");
+    led.title = x.status + (x.lock ? " (locked: " + x.lock + ")" : "");
+    el.querySelector(".gname b").textContent = x.name;
+    el.querySelector(".gname span").textContent = (x.type === "qemu" ? "VM " : "CT ") + x.vmid + (multiNode ? " on " + x.node : "");
+    var cpu = up && x.cpu != null ? x.cpu : 0;
+    var em = el.querySelector(".meter em");
+    em.style.width = Math.min(100, cpu * 100).toFixed(1) + "%";
+    em.className = levelFor(cpu, 0.8, 0.95);
+    el.querySelector(".meter > span").textContent = up ? pct(cpu) : "–";
+    el.querySelector(".gmem").textContent = up ? bytesPair(x.mem, x.maxmem) : bytes(x.maxmem, 0);
+    el.querySelector(".gup").textContent = up ? upShort(x.uptime) : x.status;
+
+    var facts = [
+      ["Status", x.status + (x.lock ? ", locked (" + x.lock + ")" : "")],
+      ["CPU cores", x.cpus],
+      ["Memory", up ? bytesPair(x.mem, x.maxmem) + " (" + pct(x.mem / x.maxmem) + ")" : bytes(x.maxmem, 0) + " assigned"],
+      ["Disk", x.maxdisk ? (x.disk ? bytesPair(x.disk, x.maxdisk) : bytes(x.maxdisk, 0)) : "–"],
+      ["Uptime", up ? uptime(x.uptime) : "Not running"],
+      ["Network since boot", up ? bytes(x.netin) + " in, " + bytes(x.netout) + " out" : "–"]
+    ];
+    if (x.tags && x.tags.length) facts.push(["Tags", x.tags.join(", ")]);
+    setHTML(el.querySelector(".facts-grid"), facts.map(function (f) { return "<div><dt>" + esc(f[0]) + "</dt><dd>" + esc(f[1] == null ? "–" : f[1]) + "</dd></div>"; }).join(""));
+
+    var acts = "";
+    if (!s.manage) acts = '<div class="controls-off">Controls are off. Set <code>admin_pin</code> in config.json to start and stop things from here.</div>';
+    else if (x.status === "running") acts = btn("shutdown", "Shut down") + btn("reboot", "Reboot") + btn("stop", "Force stop", "danger");
+    else if (x.status === "paused") acts = btn("resume", "Resume") + btn("stop", "Force stop", "danger");
+    else acts = btn("start", "Start");
+    setHTML(el.querySelector(".actions"), acts);
+  });
+  Array.prototype.slice.call(box.querySelectorAll(".guest")).forEach(function (el) {
+    if (!seen[el.getAttribute("data-key")]) el.remove();
+  });
+}
+function btn(op, label, cls) { return '<button class="btn ' + (cls || "") + '" type="button" data-op="' + op + '">' + label + "</button>"; }
+
+/* ---------------------------------------------------------------- render: cooling + power */
+var FAN_HOUSING = '<svg viewBox="-50 -50 100 100" aria-hidden="true"><circle r="47" fill="#161C27" stroke="#3A4760" stroke-width="2"/><circle r="40" fill="none" stroke="#2A3447" stroke-width="1"/>' +
+  '<g stroke="#2E3849" stroke-width="2"><line x1="-47" y1="0" x2="-11" y2="0"/><line x1="47" y1="0" x2="11" y2="0"/></g></svg>';
+var FAN_ROTOR = (function () {
+  var blades = "";
+  for (var k = 0; k < 7; k++) blades += '<path transform="rotate(' + (k * 360 / 7).toFixed(1) + ')" d="M-3.76,-10.34L2.85,-10.63C16,-15 30,-16 38.53,-14.02A41 41 0 0 0 17.33,-37.16C10,-30 2,-20 -3.76,-10.34Z"/>';
+  return '<svg class="rotor" viewBox="-50 -50 100 100" aria-hidden="true"><g fill="#8EA3C4" stroke="#1C2433" stroke-width="1" stroke-linejoin="round">' + blades + '</g><circle r="10" fill="#2C374C" stroke="#8EA3C4" stroke-width="1.5"/><circle r="3" fill="#8EA3C4"/></svg>';
+})();
+var fanAnims = {};
+function renderCooling(s) {
+  var i = s.ilo || {}, box = $("cooling");
+  if (!i.configured) {
+    $("cool-count").textContent = "";
+    setHTML(box, '<p class="hint">Add your iLO address and a login to <code>config.json</code> to see power draw, fan speeds and temperatures.</p>');
+    return;
+  }
+  if (!i.fans && !i.temps) { setHTML(box, '<p class="hint">' + esc(i.error || "Waiting for iLO…") + "</p>"); return; }
+  if (!box.querySelector(".fans")) {
+    box.innerHTML = '<div class="sub-head">Fans</div><div class="fans"></div><div class="sub-head">Temperatures</div><div class="temps"></div><div class="psu-wrap"></div>';
+    box.__h = null;
+    if (!box.__wired) {
+      box.__wired = true;
+      box.addEventListener("click", function (e) {
+        if (e.target.closest("[data-temps]")) { showAllTemps = !showAllTemps; renderCooling(S); }
+      });
+    }
+  }
+  var fans = i.fans || [];
+  var avg = fans.length ? fans.reduce(function (a, f) { return a + (f.units === "%" ? f.reading : f.level * 100); }, 0) / fans.length : null;
+  $("cool-count").textContent = fans.length ? fans.length + " fans averaging " + Math.round(avg) + "%" : "";
+
+  var fbox = box.querySelector(".fans");
+  fans.forEach(function (f, idx) {
+    var el = fbox.children[idx];
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "fan";
+      el.innerHTML = '<div class="disc">' + FAN_HOUSING + FAN_ROTOR + "</div><b></b><span></span>";
+      fbox.appendChild(el);
+      var rotor = el.querySelector(".rotor");
+      if (!reduceMotion && rotor.animate) {
+        fanAnims[idx] = rotor.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 1000, iterations: Infinity });
+      }
+    }
+    var ok = !f.health || f.health === "OK";
+    el.className = "fan" + (ok ? "" : " bad");
+    el.querySelector("b").textContent = f.reading == null ? "–" : Math.round(f.reading) + (f.units === "%" ? "%" : "");
+    el.querySelector("span").textContent = f.name + (f.units === "RPM" ? " RPM" : "");
+    el.title = f.name + ": " + (f.reading == null ? "no reading" : Math.round(f.reading) + (f.units === "%" ? "%" : " RPM")) + (ok ? "" : ", " + f.health);
+    var a = fanAnims[idx];
+    if (a) {
+      var r = Math.max(0, Math.min(1, f.level || 0)) * 3.2; // 100% ≈ 3 turns a second on screen
+      if (r < 0.05) { a.pause(); } else {
+        if (a.playState === "paused") a.play();
+        if (a.updatePlaybackRate) a.updatePlaybackRate(r); else a.playbackRate = r;
+      }
+    }
+  });
+  while (fbox.children.length > fans.length) fbox.removeChild(fbox.lastChild);
+
+  var temps = (i.temps || []).slice();
+  var key = temps.filter(function (t) { return /inlet|ambient|^cpu/i.test(t.name); });
+  var rest = temps.filter(function (t) { return key.indexOf(t) < 0; }).sort(function (a, b) { return b.c - a.c; });
+  var shown = showAllTemps ? key.concat(rest) : key.concat(rest.slice(0, 5));
+  var thtml = shown.map(function (t) {
+    var max = t.crit || (t.warn ? t.warn * 1.15 : Math.max(60, t.c * 1.4));
+    var lvl = t.warn ? (t.c >= t.warn ? "bad" : t.c >= t.warn - 5 ? "warn" : "") : "";
+    return '<div class="trow"><span class="n" title="' + esc(t.name) + '">' + esc(t.name) + '</span><span class="tbar"><em class="' + lvl + '" style="width:' +
+      Math.min(100, t.c / max * 100).toFixed(1) + '%"></em>' + (t.warn ? '<i style="left:' + Math.min(100, t.warn / max * 100).toFixed(1) + '%" title="Caution at ' + esc(temp(t.warn)) + '"></i>' : "") +
+      '</span><span class="v ' + lvl + '">' + esc(temp(t.c)) + "</span></div>";
+  }).join("");
+  if (rest.length > 5) thtml += '<button class="linkish" type="button" data-temps>' + (showAllTemps ? "Show fewer sensors" : "Show all " + temps.length + " sensors") + "</button>";
+  setHTML(box.querySelector(".temps"), thtml || '<p class="hint">No temperature sensors reported.</p>');
+
+  var psus = i.psus || [], ph = "";
+  if (psus.length) {
+    ph = '<div class="sub-head">Power supplies</div>' + psus.map(function (ps) {
+      if (!ps.present) return '<div class="line-row"><span class="led"></span><span class="t"><b>' + esc(ps.name) + "</b><span>Empty bay</span></span><span class=\"r\"></span></div>";
+      var ok = !ps.health || ps.health === "OK";
+      return '<div class="line-row"><span class="led ' + (ok ? "ok" : "warn") + '"></span><span class="t"><b>' + esc(ps.name) + "</b><span>" +
+        esc((ps.capacity ? ps.capacity + " W supply" : "Power supply") + (ps.volts ? ", " + Math.round(ps.volts) + " V input" : "") + (ok ? "" : ", " + ps.health)) +
+        '</span></span><span class="r">' + (ps.watts != null ? Math.round(ps.watts) + " W" : "–") + "</span></div>";
+    }).join("");
+    if (i.avg_watts) ph += '<p class="hint" style="padding:.6rem 0 0">Over the last ' + esc(i.metrics_minutes || 20) + " minutes: " + Math.round(i.min_watts) + " W low, " + Math.round(i.avg_watts) + " W average, " + Math.round(i.max_watts) + " W peak.</p>";
+  }
+  setHTML(box.querySelector(".psu-wrap"), ph);
+}
+
+/* ---------------------------------------------------------------- render: storage */
+function renderStorage(s) {
+  var p = s.proxmox || {}, pools = p.storage || [], disks = s.disks, h = "";
+  if (!p.configured) { setHTML($("storage"), '<p class="hint">Shows up once Proxmox is set up.</p>'); $("storage-count").textContent = ""; return; }
+  var tot = 0, used = 0;
+  pools.forEach(function (st) {
+    if (st.total) { tot += st.total; used += st.used || 0; }
+    var f = st.total ? (st.used || 0) / st.total : 0, avail = st.status === "available";
+    h += '<div class="pool"><div class="top-line"><b>' + esc(st.name) + "<span>" + esc(st.plugin || "") + (st.shared ? ", shared" : "") + "</span></b>" +
+      '<span class="r">' + (avail && st.total ? esc(bytesPair(st.used, st.total)) + ", " + pct(f) : esc(st.status || "unavailable")) + "</span></div>" +
+      '<div class="pbar"><em class="' + levelFor(f, 0.85, 0.95) + '" style="width:' + (f * 100).toFixed(1) + '%"></em></div></div>';
+  });
+  if (!pools.length) h = '<p class="hint">Waiting for Proxmox…</p>';
+  $("storage-count").textContent = pools.length ? pools.length + " pools" : "";
+
+  if (disks === null && p.host) h += '<p class="hint">To see the physical drives, give the token the Sys.Audit permission (see README).</p>';
+  else if (disks && disks.length) {
+    h += '<div class="sub-head">Drives</div>' + disks.map(function (d) {
+      var hh = String(d.health || "").toUpperCase(), ok = hh === "PASSED" || hh === "OK";
+      var cls = ok ? (d.life != null && d.life <= 10 ? "warn" : "ok") : hh === "UNKNOWN" || !hh ? "" : "bad";
+      var kind = d.type === "ssd" ? "SSD" : d.type === "nvme" ? "NVMe" : d.type === "hdd" ? (d.rpm ? Math.round(d.rpm / 100) / 10 + "K RPM HDD" : "HDD") : (d.type || "");
+      var right = ok ? "Healthy" : (d.health || "Unknown");
+      if (d.life != null) right += ", " + d.life + "% life";
+      return '<div class="line-row"><span class="led ' + cls + '"></span><span class="t"><b>' + esc(d.dev.replace("/dev/", "")) + " &nbsp;" + esc(driveSize(d.size)) + " " + esc(kind) +
+        "</b><span>" + esc(d.model || "Unknown model") + (d.used ? ", " + esc(d.used) : "") + '</span></span><span class="r">' + esc(right) + "</span></div>";
+    }).join("");
+  }
+  setHTML($("storage"), h);
+}
+
+/* ---------------------------------------------------------------- render: devices + system */
+function renderDevices(s) {
+  var d = s.devices || [];
+  $("devices-sec").hidden = !d.length;
+  if (!d.length) return;
+  var on = d.filter(function (x) { return x.online; }).length;
+  $("devices-count").textContent = on + " of " + d.length + " online";
+  setHTML($("devices"), d.map(function (x) {
+    var cls = x.online === true ? "ok" : x.online === false ? "bad" : "";
+    return '<div class="line-row"><span class="led ' + cls + '"></span><span class="t"><b>' + esc(x.name) + "</b><span>" + esc(x.host) + '</span></span><span class="r">' +
+      (x.online === true ? (x.ms != null ? x.ms + " ms" : "Online") : x.online === false ? "Offline" : "Can't check") + "</span></div>";
+  }).join(""));
+}
+function renderSystem(s) {
+  var h = g(s, "proxmox.host", {}), i = s.ilo || {}, rows = [];
+  if (i.model) rows.push(["Model", i.model]);
+  if (h.cpu_model) rows.push(["Processors", (h.sockets > 1 ? h.sockets + " × " : "") + h.cpu_model.replace(/\(R\)|\(TM\)|CPU /g, "").replace(/\s+/g, " ")]);
+  if (i.memory_gib) rows.push(["Installed memory", i.memory_gib + " GiB"]);
+  if (h.root_total) rows.push(["Boot drive", bytesPair(h.root_used, h.root_total) + " used"]);
+  if (h.swap_total) rows.push(["Swap", bytesPair(h.swap_used, h.swap_total) + " used"]);
+  if (h.pve_version) rows.push(["Proxmox VE", h.pve_version]);
+  if (h.kernel) rows.push(["Kernel", h.kernel]);
+  if (i.firmware) rows.push(["iLO firmware", i.firmware]);
+  if (i.bios) rows.push(["BIOS", i.bios]);
+  if (i.serial) rows.push(["Serial", i.serial]);
+  setHTML($("system"), rows.map(function (r) { return "<div><dt>" + esc(r[0]) + "</dt><dd>" + esc(r[1]) + "</dd></div>"; }).join(""));
+}
+
+function render() {
+  if (!S) return;
+  var alerts = alertsFor(S);
+  renderHeader(S, alerts);
+  renderChassis(S, alerts);
+  renderVitals(S);
+  renderGuests(S);
+  renderCooling(S);
+  renderStorage(S);
+  renderDevices(S);
+  renderSystem(S);
+}
+
+/* ---------------------------------------------------------------- power menu */
+function openPowerMenu(anchor) {
+  var m = $("power-menu"), i = S.ilo || {}, host = g(S, "proxmox.host.name", S.title);
+  if (!m.hidden) { m.hidden = true; return; }
+  var items = [];
+  if (S.proxmox && S.proxmox.configured && S.proxmox.host && !S.proxmox.error) {
+    items.push('<button role="menuitem" data-a="reboot">Reboot ' + esc(host) + "</button>");
+    items.push('<button role="menuitem" class="danger" data-a="shutdown">Shut down ' + esc(host) + "</button>");
+  }
+  if (i.configured && !i.error) {
+    var lit = String(i.uid || "Off") !== "Off";
+    items.push('<button role="menuitem" data-a="uid">' + (lit ? "Turn locator light off" : "Turn locator light on") + "</button>");
+    if (i.power_state === "Off") items.push('<button role="menuitem" data-a="poweron">Power on</button>');
+  }
+  if (!items.length) items.push('<div class="note">Nothing to control right now. Proxmox and iLO both need to be reachable.</div>');
+  m.innerHTML = items.join("");
+  var r = anchor.getBoundingClientRect();
+  m.hidden = false;
+  var left = Math.min(r.right - m.offsetWidth, document.documentElement.clientWidth - m.offsetWidth - 12);
+  m.style.left = Math.max(12, left + window.scrollX) + "px";
+  m.style.top = r.bottom + window.scrollY + 8 + "px";
+  var firstItem = m.querySelector("button");
+  if (firstItem) firstItem.focus();
+}
+document.addEventListener("click", function (e) {
+  var m = $("power-menu");
+  if (!m.hidden && !m.contains(e.target)) m.hidden = true;
+});
+$("power-menu").addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-a]");
+  if (!b) return;
+  $("power-menu").hidden = true;
+  var a = b.getAttribute("data-a"), host = g(S, "proxmox.host.name", S.title);
+  if (a === "reboot") confirmAction({ title: "Reboot " + host + "?", body: "Every running VM and container shuts down first, then the server restarts. The dashboard will be gone for a few minutes if it runs on this server.", verb: "Reboot", danger: true, payload: { target: "host", op: "reboot" } });
+  if (a === "shutdown") confirmAction({ title: "Shut down " + host + "?", body: "Everything on the server stops. You'll need iLO or the physical power button to turn it back on.", verb: "Shut down", danger: true, payload: { target: "host", op: "shutdown" } });
+  if (a === "uid") toggleUid();
+  if (a === "poweron") confirmAction({ title: "Power on the server?", body: "iLO presses the power button for you. Proxmox takes a few minutes to come up.", verb: "Power on", payload: { target: "power", op: "on" } });
+});
+$("led-power").addEventListener("click", function (e) { if (S && S.manage) { e.stopPropagation(); openPowerMenu(this); } });
+$("led-uid").addEventListener("click", function () { if (S && S.manage && g(S, "ilo.configured") && !g(S, "ilo.error")) toggleUid(); });
+function toggleUid() {
+  var lit = String(g(S, "ilo.uid", "Off")) !== "Off";
+  confirmAction({ title: lit ? "Turn the locator light off?" : "Turn the locator light on?", body: "That's the blue light on the front and back of the server, handy for finding it in a rack.", verb: lit ? "Turn off" : "Turn on", payload: { target: "uid", op: lit ? "off" : "on" } });
+}
+
+/* ---------------------------------------------------------------- guest actions */
+function guestAction(key, op) {
+  var parts = key.split(":"), x = (g(S, "proxmox.guests", [])).filter(function (q) { return q.type === parts[0] && String(q.vmid) === parts[1]; })[0];
+  if (!x) return;
+  var label = (x.type === "qemu" ? "VM " : "CT ") + x.vmid;
+  var info = {
+    start: ["Start " + x.name + "?", label + " boots up.", "Start", false],
+    shutdown: ["Shut down " + x.name + "?", label + " gets a clean shutdown signal, like pressing the power button once.", "Shut down", true],
+    reboot: ["Reboot " + x.name + "?", label + " restarts cleanly.", "Reboot", false],
+    stop: ["Force stop " + x.name + "?", label + " gets switched off immediately, like pulling the plug. Unsaved data inside it is lost.", "Force stop", true],
+    resume: ["Resume " + x.name + "?", label + " picks up where it was paused.", "Resume", false]
+  }[op];
+  if (info) confirmAction({ title: info[0], body: info[1], verb: info[2], danger: info[3], payload: { target: "guest", type: x.type, vmid: x.vmid, op: op } });
+}
+
+/* ---------------------------------------------------------------- confirm dialog */
+var pending = null, lastFocus = null;
+function storedPin() { try { return sessionStorage.getItem("dash-pin") || ""; } catch (e) { return ""; } }
+function savePin(p) { try { sessionStorage.setItem("dash-pin", p); } catch (e) { /* private mode */ } }
+function confirmAction(o) {
+  pending = o; lastFocus = document.activeElement;
+  $("dlg-title").textContent = o.title;
+  $("dlg-body").textContent = o.body;
+  $("dlg-go").textContent = o.verb;
+  $("dlg-go").className = "btn primary" + (o.danger ? " danger" : "");
+  $("dlg-go").disabled = false;
+  $("dlg-err").textContent = LIVE ? "" : "Demo mode: any PIN works.";
+  $("dlg-pin").value = storedPin();
+  $("scrim").classList.add("show");
+  setTimeout(function () { ($("dlg-pin").value ? $("dlg-go") : $("dlg-pin")).focus(); }, 30);
+}
+function closeDialog() {
+  $("scrim").classList.remove("show");
+  pending = null;
+  if (lastFocus && lastFocus.focus) lastFocus.focus();
+}
+$("dlg-cancel").addEventListener("click", closeDialog);
+$("scrim").addEventListener("click", function (e) { if (e.target === this) closeDialog(); });
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") { if ($("scrim").classList.contains("show")) closeDialog(); $("power-menu").hidden = true; }
+});
+$("dlg-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  if (!pending) return;
+  var pin = $("dlg-pin").value, o = pending;
+  $("dlg-go").disabled = true;
+  $("dlg-err").textContent = "";
+  send(o.payload, pin).then(function (res) {
+    savePin(pin);
+    closeDialog();
+    toast(res.message || "Done");
+    setTimeout(poll, 800);
+  }).catch(function (err) {
+    $("dlg-go").disabled = false;
+    $("dlg-err").textContent = err.message;
+    if (/PIN/.test(err.message)) { try { sessionStorage.removeItem("dash-pin"); } catch (x) { /* ignore */ } $("dlg-pin").select(); }
+  });
+});
+function send(payload, pin) {
+  if (!LIVE) return Promise.resolve(demoAct(payload));
+  var body = {}; for (var k in payload) body[k] = payload[k];
+  body.pin = pin;
+  return fetch("api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || "The dashboard service returned an error (" + r.status + ").");
+        return j;
+      });
+    }, function () { throw new Error("Couldn't reach the dashboard service."); });
+}
+var toastTimer;
+function toast(msg, isErr) {
+  var t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.className = "toast" + (isErr ? " err" : ""); }, 3200);
+}
+
+/* ---------------------------------------------------------------- polling */
+var inflight = false;
+function poll() {
+  if (!LIVE) { S = S ? tickDemo(S) : makeDemo(); render(); return; }
+  if (inflight) return;
+  inflight = true;
+  fetch("api/status", { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function (j) { S = j; lastFetchOk = Date.now(); render(); })
+    .catch(function () { if (S) render(); else setHTML($("status"), '<span class="led bad"></span><span>Can\'t reach the dashboard service</span>'); })
+    .then(function () { inflight = false; });
+}
+setInterval(function () { if (document.visibilityState !== "hidden") poll(); }, 3000);
+document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") poll(); });
+setInterval(function () {
+  if (!LIVE || !S) return;
+  var el = $("updated-ago"), newest = Math.max(g(S, "proxmox.updated", 0), g(S, "ilo.updated", 0));
+  if (el) el.textContent = ago(newest);
+}, 1000);
+
+/* ---------------------------------------------------------------- demo data */
+function makeDemo() {
+  $("demo-note").hidden = false;
+  var now = Date.now() / 1000, GiB = 1073741824, H = { cpu: [], mem: [], power: [], inlet: [] }, rrd = [];
+  for (var k = 359; k >= 0; k--) {
+    var t = now - k * 10, w = Math.sin(k / 23) + Math.sin(k / 7) * 0.4;
+    H.cpu.push([t, 0.11 + 0.035 * w + Math.random() * 0.02]);
+    H.mem.push([t, 0.47 + 0.004 * Math.sin(k / 40)]);
+    H.power.push([t, 186 + 9 * w + Math.random() * 4]);
+    H.inlet.push([t, 21.4 + 0.5 * Math.sin(k / 60)]);
+  }
+  for (var m = 69; m >= 0; m--) {
+    var ws = Math.max(0, Math.sin(m / 9));
+    rrd.push([now - m * 60, 0.12, 0.47, 180000 + 2600000 * ws * ws + Math.random() * 90000, 60000 + 240000 * Math.random()]);
+  }
+  function G(vmid, name, type, status, cpus, maxmem, cpu, memf, up, maxdisk, tags) {
+    return { vmid: vmid, name: name, type: type, node: "pve", status: status, template: false, cpu: cpu, cpus: cpus, mem: status === "running" ? maxmem * memf : 0,
+      maxmem: maxmem, disk: type === "lxc" ? maxdisk * 0.41 : 0, maxdisk: maxdisk, uptime: status === "running" ? up : 0,
+      netin: up * 3100, netout: up * 820, tags: tags || [], lock: null };
+  }
+  var guests = [
+    G(100, "docker", "qemu", "running", 8, 16 * GiB, 0.09, 0.62, 1123200 + 15000, 128 * GiB, ["apps"]),
+    G(101, "jellyfin", "lxc", "running", 4, 4 * GiB, 0.04, 0.38, 1123200 + 15000, 32 * GiB, ["media"]),
+    G(102, "pihole", "lxc", "running", 1, 0.5 * GiB, 0.01, 0.29, 1123200 + 15000, 8 * GiB, ["network"]),
+    G(103, "homeassistant", "qemu", "running", 2, 4 * GiB, 0.03, 0.71, 1123200 + 15000, 32 * GiB),
+    G(104, "nextcloud", "lxc", "running", 2, 4 * GiB, 0.02, 0.44, 345600, 64 * GiB),
+    G(105, "tailscale", "lxc", "running", 1, 0.5 * GiB, 0.005, 0.18, 1123200 + 15000, 4 * GiB, ["network"]),
+    G(106, "dashboard", "lxc", "running", 1, 0.5 * GiB, 0.004, 0.12, 7200, 4 * GiB),
+    G(110, "win11", "qemu", "stopped", 8, 16 * GiB, 0, 0, 0, 128 * GiB),
+    G(120, "minecraft", "lxc", "stopped", 4, 8 * GiB, 0, 0, 0, 32 * GiB, ["games"])
+  ];
+  guests.push({ vmid: 9000, name: "debian-13-template", type: "qemu", node: "pve", status: "stopped", template: true, cpus: 2, maxmem: 2 * GiB, maxdisk: 16 * GiB, tags: [] });
+  var TB = 1e12, fan = [27, 27, 29, 31, 31, 29];
+  return {
+    demo: true, now: now, title: "pve", manage: true, bays: 8, temp_unit: "C",
+    proxmox: {
+      configured: true, error: null, updated: now,
+      host: { name: "pve", uptime: 1123200 + 15360, cpu: 0.12, iowait: 0.004, cpus: 48, sockets: 2, cores: 12,
+        cpu_model: "Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz", loadavg: [1.38, 1.52, 1.47], mem_used: 30.1 * GiB, mem_total: 62.8 * GiB,
+        swap_used: 0, swap_total: 8 * GiB, root_used: 14.2 * GiB, root_total: 93.9 * GiB, pve_version: "9.0.10", kernel: "6.14.11-4-pve" },
+      guests: guests,
+      storage: [
+        { name: "backups", plugin: "dir", used: 0.61 * TB / 1.0995, total: 1.8 * 1024 * GiB, status: "available", shared: false },
+        { name: "local", plugin: "dir", used: 14.2 * GiB, total: 93.9 * GiB, status: "available", shared: false },
+        { name: "local-lvm", plugin: "lvmthin", used: 101 * GiB, total: 330 * GiB, status: "available", shared: false },
+        { name: "tank", plugin: "zfspool", used: 0.74 * 1024 * GiB, total: 1.07 * 1024 * GiB, status: "available", shared: false }
+      ],
+      nodes: [{ name: "pve", online: true }]
+    },
+    disks: [
+      { dev: "/dev/sda", model: "Samsung SSD 870 EVO 500GB", size: 500107862016, type: "ssd", health: "PASSED", life: 97, used: "LVM" },
+      { dev: "/dev/sdb", model: "Samsung SSD 870 EVO 500GB", size: 500107862016, type: "ssd", health: "PASSED", life: 98, used: "LVM" },
+      { dev: "/dev/sdc", model: "HPE EG1200FDJYT", size: 1200243695616, type: "hdd", rpm: 10000, health: "OK", life: null, used: "ZFS" },
+      { dev: "/dev/sdd", model: "HPE EG1200FDJYT", size: 1200243695616, type: "hdd", rpm: 10000, health: "OK", life: null, used: "ZFS" },
+      { dev: "/dev/sde", model: "WDC WD20SPZX-22UA7T0", size: 2000398934016, type: "hdd", rpm: 5400, health: "PASSED", life: null, used: "ext4" },
+      { dev: "/dev/sdf", model: "Crucial CT1000MX500SSD1", size: 1000204886016, type: "ssd", health: "PASSED", life: 91, used: "partitions" }
+    ],
+    net: { "in": rrd[rrd.length - 1][3], out: rrd[rrd.length - 1][4], series: rrd.map(function (q) { return [q[0], q[3], q[4]]; }) },
+    ilo: {
+      configured: true, error: null, updated: now, watts: 188, avg_watts: 187, min_watts: 171, max_watts: 236, metrics_minutes: 20, capacity_watts: 1000,
+      psus: [{ name: "PSU 1", present: true, watts: 96, capacity: 500, volts: 121, health: "OK" }, { name: "PSU 2", present: true, watts: 92, capacity: 500, volts: 121, health: "OK" }],
+      fans: fan.map(function (v, idx) { return { name: "Fan " + (idx + 1), reading: v, units: "%", level: v / 100, health: "OK" }; }),
+      temps: [
+        ["Inlet Ambient", 21, 42, 46], ["CPU 1", 44, 70, null], ["CPU 2", 41, 70, null], ["P1 DIMM 1-6", 33, 89, null], ["P1 DIMM 7-12", 32, 89, null],
+        ["P2 DIMM 1-6", 31, 89, null], ["P2 DIMM 7-12", 33, 89, null], ["HD Max", 35, 60, null], ["Chipset", 52, 105, null], ["P/S 1", 33, null, null],
+        ["P/S 2", 34, null, null], ["VR P1", 38, 115, 120], ["VR P2", 36, 115, 120], ["iLO Zone", 40, 90, 95], ["PCI 1 Zone", 37, 70, 75], ["Battery Zone", 30, 75, 80]
+      ].map(function (t) { return { name: t[0], c: t[1], warn: t[2], crit: t[3], health: "OK" }; }),
+      model: "ProLiant DL380 Gen9", serial: "MXQ61204KD", power_state: "On", health: "OK", uid: "Off", bios: "P89 v2.80 (10/16/2020)", firmware: "iLO 4 v2.82",
+      cpu_count: 2, memory_gib: 64
+    },
+    energy: { avg_watts: 187, kwh_month: 137, cost_month: 17.8, currency: "$" },
+    history: H,
+    devices: [
+      { name: "Orbi router", host: "192.168.1.1", online: true, ms: 0.9 },
+      { name: "Gaming PC", host: "192.168.1.20", online: true, ms: 1.4 },
+      { name: "Media box", host: "192.168.1.30", online: true, ms: 0.7 },
+      { name: "Living room Fire TV", host: "192.168.1.42", online: false, ms: null }
+    ]
+  };
+}
+function jit(v, amt, lo, hi) { v += (Math.random() - 0.5) * amt; return Math.max(lo, Math.min(hi, v)); }
+function tickDemo(d) {
+  var now = Date.now() / 1000, dt = now - d.now, h = d.proxmox.host, i = d.ilo;
+  d.now = now; d.proxmox.updated = now; i.updated = now;
+  h.cpu = jit(h.cpu, 0.03, 0.06, 0.3); h.uptime += dt;
+  h.loadavg[0] = jit(h.loadavg[0], 0.2, 0.6, 3);
+  h.mem_used = jit(h.mem_used, 0.05 * 1073741824, 28 * 1073741824, 33 * 1073741824);
+  i.watts = Math.round(jit(i.watts, 8, 170, 240));
+  i.temps.forEach(function (t) { t.c = Math.round(jit(t.c, 1, t.c - 1, t.c + 1)); });
+  i.fans.forEach(function (f) { f.reading = Math.round(jit(f.reading, 2, 24, 36)); f.level = f.reading / 100; });
+  d.proxmox.guests.forEach(function (x) {
+    if (x.status === "running") { x.cpu = jit(x.cpu, x.cpus > 2 ? 0.04 : 0.01, 0.002, 0.6); x.uptime += dt; x.netin += dt * 3100; x.netout += dt * 820; }
+  });
+  var last = d.history.cpu[d.history.cpu.length - 1];
+  if (now - last[0] >= 10) {
+    ["cpu", "mem", "power", "inlet"].forEach(function (k) { if (d.history[k].length > 360) d.history[k].shift(); });
+    d.history.cpu.push([now, h.cpu]);
+    d.history.mem.push([now, h.mem_used / h.mem_total]);
+    d.history.power.push([now, i.watts]);
+    d.history.inlet.push([now, i.temps[0].c]);
+  }
+  return d;
+}
+function demoAct(p) {
+  var msg = "Done";
+  if (p.target === "guest") {
+    var x = S.proxmox.guests.filter(function (q) { return q.vmid === p.vmid && q.type === p.type; })[0];
+    if (x) {
+      if (p.op === "start" || p.op === "resume") { x.status = "running"; x.uptime = 1; x.cpu = 0.05; x.mem = x.maxmem * 0.2; x.netin = 0; x.netout = 0; msg = "Starting " + x.name; }
+      if (p.op === "shutdown" || p.op === "stop") { x.status = "stopped"; x.cpu = 0; x.uptime = 0; msg = (p.op === "stop" ? "Force-stopping " : "Shutting down ") + x.name; }
+      if (p.op === "reboot") { x.uptime = 1; msg = "Rebooting " + x.name; }
+    }
+  } else if (p.target === "uid") { S.ilo.uid = p.op === "on" ? "Lit" : "Off"; msg = p.op === "on" ? "Locator light on" : "Locator light off"; }
+  else if (p.target === "host") msg = "Demo mode: the server would " + (p.op === "reboot" ? "reboot" : "shut down") + " now";
+  else if (p.target === "power") msg = "Powering on";
+  render();
+  return { ok: true, message: msg };
+}
+
+poll();
+})();
+</script>
+</body>
+</html>

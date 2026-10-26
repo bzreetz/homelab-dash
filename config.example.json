@@ -1,0 +1,29 @@
+{
+  "port": 8080,
+  "title": "",
+  "admin_pin": "",
+  "temp_unit": "C",
+  "electricity_rate": 0.13,
+  "currency": "$",
+  "drive_bays": 8,
+
+  "proxmox": {
+    "host": "https://192.168.1.10:8006",
+    "token_id": "dashboard@pve!dash",
+    "token_secret": "CHANGE-ME-paste-the-secret-here",
+    "node": "pve",
+    "verify_ssl": false
+  },
+
+  "ilo": {
+    "host": "https://192.168.1.11",
+    "username": "dashboard",
+    "password": "CHANGE-ME",
+    "verify_ssl": false
+  },
+
+  "devices": [
+    { "name": "Orbi router", "host": "192.168.1.1" },
+    { "name": "Gaming PC", "host": "192.168.1.20" }
+  ]
+}
