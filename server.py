@@ -408,23 +408,43 @@ class Ilo:
     def get(self, path):
         return self.api.request("GET", path)
 
-    def ribcl_fans(self):
-        """Fan speeds through iLO's older RIBCL interface.
+    def ribcl(self, commands, mode="read"):
+        """Send commands to iLO's older RIBCL interface and return the reply text.
 
-        Some iLO 4 firmware lists the fans over Redfish without their speed, but
-        RIBCL's GET_EMBEDDED_HEALTH always includes it. Needs only a login.
+        iLO 4 reports some things more reliably here than over Redfish (fan
+        speeds, the locator light). Reads need only a login.
         """
         def attr(s):
             return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     .replace('"', "&quot;").replace("'", "&apos;"))
         xml = ('<?xml version="1.0"?>\r\n<RIBCL VERSION="2.0">'
                f'<LOGIN USER_LOGIN="{attr(self.username)}" PASSWORD="{attr(self.password)}">'
-               '<SERVER_INFO MODE="read"><GET_EMBEDDED_HEALTH /></SERVER_INFO></LOGIN></RIBCL>\r\n')
+               f'<SERVER_INFO MODE="{mode}">{commands}</SERVER_INFO></LOGIN></RIBCL>\r\n')
         raw = self.api.send("POST", "/ribcl", xml.encode(), {"Content-Type": "text/xml"})
         text = raw.decode("utf-8", errors="replace")
         for status, message in re.findall(r'<RESPONSE\s+STATUS="(0x[0-9A-Fa-f]+)"\s+MESSAGE=[\'"]([^\'"]*)', text):
             if int(status, 16) != 0:
                 raise UpstreamError(f"iLO's RIBCL interface said: {message}")
+        return text
+
+    @staticmethod
+    def parse_uid(text):
+        m = re.search(r'<GET_UID_STATUS\b[^>]*?\b(?:UID_STATUS|UID)\s*=\s*"([^"]+)"', text)
+        if not m:
+            return None
+        v = m.group(1).strip().upper()
+        return "Lit" if v == "ON" else "Off" if v == "OFF" else "Blinking" if v.startswith("BLINK") else None
+
+    def read_uid(self):
+        try:
+            return self.parse_uid(self.ribcl("<GET_UID_STATUS />"))
+        except UpstreamError:
+            return None
+
+    def ribcl_fans(self, text=None):
+        """Fan speeds from RIBCL's GET_EMBEDDED_HEALTH, for firmware whose Redfish leaves them out."""
+        if text is None:
+            text = self.ribcl("<GET_EMBEDDED_HEALTH />")
         fans = []
         for block in re.findall(r"<FAN>(.*?)</FAN>", text, re.S):
             label = re.search(r'<LABEL\s+VALUE\s*=\s*"([^"]*)"', block)
@@ -445,16 +465,22 @@ class Ilo:
             })
         return fans
 
-    def fill_fan_speeds(self, data):
+    def fill_from_ribcl(self, data):
         fans = data["fans"]
-        if fans and any(f["reading"] is not None for f in fans):
+        need_fans = not (fans and any(f["reading"] is not None for f in fans))
+        want_health = need_fans and (self.ribcl_fans_cache is None or self.tick % 2 == 0)
+        try:
+            text = self.ribcl("<GET_UID_STATUS />" + ("<GET_EMBEDDED_HEALTH />" if want_health else ""))
+            self.ribcl_error = None
+            uid = self.parse_uid(text)
+            if uid:
+                data["uid"] = uid  # Redfish's IndicatorLED can be stale on iLO 4
+            if want_health:
+                self.ribcl_fans_cache = self.ribcl_fans(text)
+        except UpstreamError as e:
+            self.ribcl_error = str(e)
+        if not need_fans:
             return
-        if self.ribcl_fans_cache is None or self.tick % 2 == 0:
-            try:
-                self.ribcl_fans_cache = self.ribcl_fans()
-                self.ribcl_error = None
-            except UpstreamError as e:
-                self.ribcl_error = str(e)
         data["fan_error"] = self.ribcl_error
         extra = self.ribcl_fans_cache or []
         if not fans:
@@ -496,7 +522,7 @@ class Ilo:
             except UpstreamError:
                 self.manager = {}
         data = self.normalize(power, thermal, self.system, self.manager)
-        self.fill_fan_speeds(data)
+        self.fill_from_ribcl(data)
         self.tick += 1
         return data
 
@@ -596,7 +622,28 @@ class Ilo:
         }
 
     def set_uid(self, on):
-        self.api.request("PATCH", self.discover()["system"], body={"IndicatorLED": "Lit" if on else "Off"})
+        """Turn the locator light on or off and return what iLO says it is afterwards."""
+        def matches(state):
+            return state is not None and (state != "Off") == on
+        redfish_error = None
+        try:
+            self.api.request("PATCH", self.discover()["system"], body={"IndicatorLED": "Lit" if on else "Off"})
+        except UpstreamError as e:
+            redfish_error = e
+        time.sleep(1.5)
+        actual = self.read_uid()
+        if actual is None:  # RIBCL unavailable, so trust Redfish
+            if redfish_error:
+                raise redfish_error
+            return "Lit" if on else "Off"
+        if matches(actual):
+            return actual
+        self.ribcl(f'<UID_CONTROL UID="{"Yes" if on else "No"}"/>', mode="write")
+        time.sleep(1)
+        actual = self.read_uid()
+        if actual is not None and not matches(actual):
+            raise UpstreamError("iLO didn't change the locator light. Give the iLO user the Configure iLO Settings permission and try again.")
+        return actual or ("Lit" if on else "Off")
 
     def power_on(self):
         target = (((self.system or {}).get("Actions") or {}).get("#ComputerSystem.Reset") or {}).get("target")
@@ -1125,10 +1172,14 @@ class Dashboard:
         elif target == "uid":
             if not self.ilo:
                 raise ValueError("iLO isn't set up.")
+            if op not in ("on", "off", "toggle"):
+                raise ValueError(f"Unknown action {op!r}.")
             current = ((self.state["ilo"] or {}).get("uid") or "Off").lower()
             on = op == "on" or (op == "toggle" and current == "off")
-            self.ilo.set_uid(on)
-            self.ilo.refresh_system()
+            actual = self.ilo.set_uid(on)
+            with self.lock:
+                if self.state["ilo"]:
+                    self.state["ilo"] = dict(self.state["ilo"], uid=actual)
             msg = "Locator light on" if on else "Locator light off"
         elif target == "power":
             if not self.ilo or op != "on":

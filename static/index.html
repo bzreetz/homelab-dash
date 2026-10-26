@@ -979,7 +979,9 @@ function openPowerMenu(anchor) {
   }
   if (i.configured && !i.error) {
     var lit = String(i.uid || "Off") !== "Off";
-    items.push('<button role="menuitem" data-a="uid">' + (lit ? "Turn locator light off" : "Turn locator light on") + "</button>");
+    items.push('<div class="note">Locator light is ' + (lit ? "on" : "off") + "</div>");
+    items.push('<button role="menuitem" data-a="uid-off">Turn locator light off</button>');
+    items.push('<button role="menuitem" data-a="uid-on">Turn locator light on</button>');
     if (i.power_state === "Off") items.push('<button role="menuitem" data-a="poweron">Power on</button>');
   }
   if (!items.length) items.push('<div class="note">Nothing to control right now. Proxmox and iLO both need to be reachable.</div>');
@@ -1003,14 +1005,15 @@ $("power-menu").addEventListener("click", function (e) {
   var a = b.getAttribute("data-a"), host = g(S, "proxmox.host.name", S.title);
   if (a === "reboot") confirmAction({ title: "Reboot " + host + "?", body: "Every running VM and container shuts down first, then the server restarts. The dashboard will be gone for a few minutes if it runs on this server.", verb: "Reboot", danger: true, payload: { target: "host", op: "reboot" } });
   if (a === "shutdown") confirmAction({ title: "Shut down " + host + "?", body: "Everything on the server stops. You'll need iLO or the physical power button to turn it back on.", verb: "Shut down", danger: true, payload: { target: "host", op: "shutdown" } });
-  if (a === "uid") toggleUid();
+  if (a === "uid-on") setUid(true);
+  if (a === "uid-off") setUid(false);
   if (a === "poweron") confirmAction({ title: "Power on the server?", body: "iLO presses the power button for you. Proxmox takes a few minutes to come up.", verb: "Power on", payload: { target: "power", op: "on" } });
 });
 $("led-power").addEventListener("click", function (e) { if (S && S.manage) { e.stopPropagation(); openPowerMenu(this); } });
 $("led-uid").addEventListener("click", function () { if (S && S.manage && g(S, "ilo.configured") && !g(S, "ilo.error")) toggleUid(); });
-function toggleUid() {
-  var lit = String(g(S, "ilo.uid", "Off")) !== "Off";
-  confirmAction({ title: lit ? "Turn the locator light off?" : "Turn the locator light on?", body: "That's the blue light on the front and back of the server, handy for finding it in a rack.", verb: lit ? "Turn off" : "Turn on", payload: { target: "uid", op: lit ? "off" : "on" } });
+function toggleUid() { setUid(String(g(S, "ilo.uid", "Off")) === "Off"); }
+function setUid(on) {
+  confirmAction({ title: on ? "Turn the locator light on?" : "Turn the locator light off?", body: "That's the blue light on the front and back of the server, handy for finding it in a rack.", verb: on ? "Turn on" : "Turn off", payload: { target: "uid", op: on ? "on" : "off" } });
 }
 
 /* ---------------------------------------------------------------- guest actions */
