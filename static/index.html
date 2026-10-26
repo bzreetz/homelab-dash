@@ -767,7 +767,8 @@ function renderStorage(s) {
     h += '<div class="sub-head">Drives</div>' + disks.map(function (d) {
       var hh = String(d.health || "").toUpperCase(), ok = hh === "PASSED" || hh === "OK";
       var cls = ok ? (d.life != null && d.life <= 10 ? "warn" : "ok") : hh === "UNKNOWN" || !hh ? "" : "bad";
-      var kind = d.type === "ssd" ? "SSD" : d.type === "nvme" ? "NVMe" : d.type === "hdd" ? (d.rpm ? Math.round(d.rpm / 100) / 10 + "K RPM HDD" : "HDD") : (d.type || "");
+      var t = d.type === "unknown" && d.rpm ? "hdd" : d.type;
+      var kind = t === "ssd" ? "SSD" : t === "nvme" ? "NVMe" : t === "hdd" ? (d.rpm ? Math.round(d.rpm / 100) / 10 + "K RPM HDD" : "HDD") : t && t !== "unknown" ? t : "";
       var right = ok ? "Healthy" : (d.health || "Unknown");
       if (d.life != null) right += ", " + d.life + "% life";
       return '<div class="line-row"><span class="led ' + cls + '"></span><span class="t"><b>' + esc(d.dev.replace("/dev/", "")) + " &nbsp;" + esc(driveSize(d.size)) + " " + esc(kind) +

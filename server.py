@@ -333,6 +333,47 @@ def first(*vals):
     return None
 
 
+def as_number(v):
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return v
+    if isinstance(v, str):
+        try:
+            return float(v.strip().rstrip("%"))
+        except ValueError:
+            return None
+    return None
+
+
+def fan_reading(f):
+    """iLO firmware versions put the fan speed under different keys; try them all."""
+    for key in ("Reading", "CurrentReading", "ReadingPercent", "ReadingRPM"):
+        n = as_number(f.get(key))
+        if n is not None:
+            return n
+    speed = f.get("SpeedPercent")
+    if isinstance(speed, dict):
+        n = as_number(speed.get("Reading"))
+        if n is not None:
+            return n
+    oem = f.get("Oem") or {}
+    for vendor in (oem.get("Hpe"), oem.get("Hp"), oem):
+        if isinstance(vendor, dict):
+            for key, val in vendor.items():
+                if any(w in key.lower() for w in ("reading", "speed", "percent")):
+                    n = as_number(val)
+                    if n is not None:
+                        return n
+    # Last resort: any numeric field that sounds like a reading.
+    for key, val in f.items():
+        if any(w in key.lower() for w in ("reading", "speed")) and "range" not in key.lower():
+            n = as_number(val)
+            if n is not None:
+                return n
+    return None
+
+
 class Ilo:
     def __init__(self, cfg):
         token = base64.b64encode(f"{cfg['username']}:{cfg['password']}".encode()).decode()
@@ -376,6 +417,13 @@ class Ilo:
         self.tick += 1
         return self.normalize(power, thermal, self.system, self.manager)
 
+    def raw(self, part):
+        p = self.discover()
+        paths = {"thermal": p["chassis"] + "Thermal/", "power": p["chassis"] + "Power/", "system": p["system"]}
+        if part not in paths:
+            raise ValueError("Use /api/raw/thermal, /api/raw/power or /api/raw/system")
+        return self.get(paths[part])
+
     def refresh_system(self):
         self.system = self.get(self.discover()["system"])
 
@@ -403,8 +451,8 @@ class Ilo:
             st = f.get("Status") or {}
             if st.get("State") == "Absent":
                 continue
-            reading = first(f.get("Reading"), f.get("CurrentReading"))
-            units = (f.get("ReadingUnits") or f.get("Units") or "Percent")
+            reading = fan_reading(f)
+            units = str(f.get("ReadingUnits") or f.get("Units") or ("RPM" if "ReadingRPM" in f else "Percent"))
             fans.append({
                 "name": f.get("Name") or f.get("FanName") or f"Fan {i + 1}",
                 "reading": reading,
@@ -759,6 +807,17 @@ def make_handler(dash):
                 if dash is None:
                     return self.send_json(404, {"error": "demo mode"})
                 return self.send_json(200, dash.snapshot())
+            if path.startswith("/api/raw/"):
+                # Read-only view of what iLO actually sends, for troubleshooting.
+                part = path[len("/api/raw/"):].strip("/")
+                if dash is None or not dash.ilo:
+                    return self.send_json(404, {"error": "iLO isn't set up"})
+                try:
+                    return self.send_json(200, dash.ilo.raw(part))
+                except ValueError as e:
+                    return self.send_json(404, {"error": str(e)})
+                except UpstreamError as e:
+                    return self.send_json(502, {"error": str(e)})
             if path in ("/", "/index.html"):
                 with open(os.path.join(STATIC, "index.html"), "rb") as f:
                     html = f.read()
