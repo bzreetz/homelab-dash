@@ -47,7 +47,8 @@ Want look-only, no buttons? Leave out `Sys.PowerMgmt` and `VM.PowerMgmt`.
 
 1. Open iLO in a browser (the address of the server's dedicated iLO port).
 2. **Administration → User Administration → New**.
-3. Login name `dashboard`, a password, and tick **Login** and **Virtual Power and Reset**. If the locator light button later says permission denied, also tick **Configure iLO Settings**.
+3. Use `dashboard` for both User Name and Login Name, set a password, and tick only **Virtual Power and Reset**. (iLO 4 has no separate login checkbox; every user can log in.) If the locator light button later says permission denied, also tick **Configure iLO Settings**.
+4. Click **Add User**.
 
 iLO 4 needs firmware **2.30 or newer** for this to work (the last release is 2.82). The version is on the iLO **Information → Overview** page.
 
