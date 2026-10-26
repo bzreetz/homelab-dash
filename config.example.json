@@ -22,6 +22,15 @@
     "verify_ssl": false
   },
 
+  "speedtest": { "vmid": 120 },
+
+  "links": {
+    "110": [
+      { "name": "Jellyfin", "url": "http://192.168.1.30:8096" },
+      { "name": "Sonarr", "url": "http://192.168.1.30:8989" }
+    ]
+  },
+
   "devices": [
     { "name": "Orbi router", "host": "192.168.1.1" },
     { "name": "Gaming PC", "host": "192.168.1.20" }

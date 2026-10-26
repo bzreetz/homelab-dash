@@ -15,6 +15,8 @@ SERVICE=homelab-dash
 echo "Checking packages..."
 command -v python3 >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq python3; }
 command -v ping >/dev/null 2>&1 || apt-get install -y -qq iputils-ping || true
+# ssh + ssh-keygen let the dashboard run speed tests in another container
+command -v ssh-keygen >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq openssh-client; } || true
 
 id dash >/dev/null 2>&1 || useradd --system --home-dir "$DEST" --shell /usr/sbin/nologin dash
 
@@ -37,6 +39,9 @@ fi
 chown -R root:dash "$DEST"
 chmod 750 "$DEST"
 chmod 640 "$DEST/config.json"
+# data/ holds the speed test key and results; only the service can read it.
+install -d -o dash -g dash -m 700 "$DEST/data"
+chown -R dash:dash "$DEST/data"
 
 cat > "/etc/systemd/system/$SERVICE.service" <<EOF
 [Unit]

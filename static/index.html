@@ -191,6 +191,39 @@ button{font:inherit;color:inherit}
 .pbar em{display:block;height:100%;background:var(--trace);border-radius:3px}
 .pbar em.warn{background:var(--warn)} .pbar em.bad{background:var(--bad)}
 
+/* apps inside a guest */
+.apps{margin-bottom:1rem}
+.apps .sub-head{margin-top:.2rem}
+.app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr));gap:.5rem}
+.app{display:flex;align-items:center;gap:.6rem;min-width:0;padding:.65rem .8rem;background:var(--plate);border:1px solid var(--rule);border-radius:8px;color:var(--ink);text-decoration:none}
+.app:hover{border-color:#4C5B78;background:var(--plate-2)}
+.app b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app span.p{margin-left:auto;color:var(--ink-3);font-size:.8rem;white-space:nowrap}
+
+/* speed test */
+.speed-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem 1rem;margin-top:.9rem}
+.sn span{display:block;font-size:.85rem;color:var(--ink-2)}
+.sn b{display:block;font:600 clamp(2rem,2.6vw,2.8rem)/1.05 var(--cond);margin-top:.15rem;white-space:nowrap}
+.sn b small{font-size:.5em;font-weight:500;color:var(--ink-2);margin-left:.12em}
+.sn.dim b{color:var(--ink-3)}
+.speed-meta{font-size:.86rem;color:var(--ink-3);margin-top:.45rem}
+.speed-meta a{color:var(--trace)}
+.speed-run{display:flex;align-items:center;gap:1rem;margin-top:1rem;flex-wrap:wrap}
+.speed-run .prog{flex:1;min-width:10rem}
+.speed-run .prog .ph{font-size:.88rem;color:var(--ink-2)}
+.speed-run .prog .pbar{margin-top:.35rem}
+.speed-run .prog .pbar em{transition:width .6s linear}
+.speed-err{color:var(--bad);font-size:.9rem;margin-top:.7rem}
+.speed-setup{margin-top:.9rem;padding:.9rem;background:var(--plate);border:1px solid var(--rule);border-radius:8px}
+.speed-setup p{margin:0 0 .6rem;font-size:.9rem;color:var(--ink-2)}
+.speed-setup textarea{width:100%;height:6.5rem;resize:vertical;background:var(--steel);color:var(--ink);border:1px solid var(--rule);border-radius:6px;padding:.55rem;font:.78rem/1.45 ui-monospace,Menlo,Consolas,monospace}
+.speed-setup .row{display:flex;gap:.6rem;align-items:center;margin-top:.55rem}
+.speed-hist{margin-top:1.2rem}
+.speed-hist .lbl{display:flex;justify-content:space-between;font-size:.8rem;color:var(--ink-3)}
+.speed-hist svg{display:block;width:100%;height:3.4rem;margin-top:.35rem}
+.speed-hist .d{fill:var(--trace)} .speed-hist .u{fill:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){.speed-run .prog .pbar em{transition:none}}
+
 /* system footer */
 .system{margin-top:2.6rem;border-top:1px solid var(--rule);padding-top:1rem}
 
@@ -292,6 +325,10 @@ button{font:inherit;color:inherit}
       </section>
     </div>
     <div class="col col-c">
+      <section aria-labelledby="h-speed" id="speed-sec" hidden>
+        <div class="sec-head"><h2 id="h-speed">Internet speed</h2><span class="count" id="speed-count"></span></div>
+        <div id="speed"></div>
+      </section>
       <section aria-labelledby="h-storage">
         <div class="sec-head"><h2 id="h-storage">Storage</h2><span class="count" id="storage-count"></span></div>
         <div id="storage"></div>
@@ -605,7 +642,7 @@ function renderGuests(s) {
       el.setAttribute("data-key", key);
       el.innerHTML = '<button class="grow" type="button" aria-expanded="false"><span class="led"></span><span class="gname"><b></b><span></span></span>' +
         '<span class="meter"><i><em></em></i><span></span></span><span class="gmem"></span><span class="gup"></span>' + CHEV + "</button>" +
-        '<div class="gdetail"><dl class="facts-grid"></dl><div class="actions"></div></div>';
+        '<div class="gdetail"><div class="apps"></div><dl class="facts-grid"></dl><div class="actions"></div></div>';
       el.querySelector(".grow").addEventListener("click", function () {
         var open = !el.classList.contains("open");
         el.classList.toggle("open", open);
@@ -626,7 +663,15 @@ function renderGuests(s) {
     led.className = "led " + (up ? "ok" : x.status === "paused" || x.lock ? "warn" : "");
     led.title = x.status + (x.lock ? " (locked: " + x.lock + ")" : "");
     el.querySelector(".gname b").textContent = x.name;
-    el.querySelector(".gname span").textContent = (x.type === "qemu" ? "VM " : "CT ") + x.vmid + (multiNode ? " on " + x.node : "");
+    el.querySelector(".gname span").textContent = (x.type === "qemu" ? "VM " : "CT ") + x.vmid + (multiNode ? " on " + x.node : "") +
+      (x.links && x.links.length ? ", " + x.links.length + (x.links.length === 1 ? " app" : " apps") : "");
+    setHTML(el.querySelector(".apps"), x.links && x.links.length ? '<div class="sub-head">Apps</div><div class="app-grid">' + x.links.map(function (l) {
+      var port = "";
+      try { var u = new URL(l.url); port = u.port ? ":" + u.port : u.host; } catch (e) { port = ""; }
+      var cls = l.up === true ? "ok" : l.up === false ? "bad" : "";
+      return '<a class="app" href="' + esc(l.url) + '" target="_blank" rel="noopener" title="' + esc(l.url + (l.up === false ? " (not answering)" : "")) + '"><span class="led ' + cls + '"></span><b>' +
+        esc(l.name) + '</b><span class="p">' + esc(port) + "</span></a>";
+    }).join("") + "</div>" : "");
     var cpu = up && x.cpu != null ? x.cpu : 0;
     var em = el.querySelector(".meter em");
     em.style.width = Math.min(100, cpu * 100).toFixed(1) + "%";
@@ -780,6 +825,105 @@ function renderStorage(s) {
   setHTML($("storage"), h);
 }
 
+/* ---------------------------------------------------------------- render: speed test */
+var speedLive = { ping: null, download: null, upload: null }, speedWasRunning = false;
+function mbps(v) { return v == null ? null : v >= 100 ? Math.round(v) : Math.round(v * 10) / 10; }
+function renderSpeed(s) {
+  var st = s.speedtest || {}, sec = $("speed-sec"), box = $("speed");
+  sec.hidden = !st.configured;
+  if (!st.configured) return;
+  if (!box.querySelector(".speed-run")) {
+    box.innerHTML = '<div class="speed-nums"></div><div class="speed-meta"></div>' +
+      '<div class="speed-run"><button class="btn primary" type="button" id="speed-btn">Run speed test</button><div class="prog" hidden><div class="ph"></div><div class="pbar"><em></em></div></div></div>' +
+      '<div class="speed-err" role="alert"></div><div class="speed-setup-wrap"></div><div class="speed-hist"></div>';
+    $("speed-btn").addEventListener("click", function () {
+      var b = this;
+      b.disabled = true;
+      send({ target: "speedtest", op: "run" }, "").then(function () {
+        speedLive = { ping: null, download: null, upload: null };
+        setTimeout(poll, 400);
+      }).catch(function (e) { b.disabled = false; toast(e.message, true); });
+    });
+    box.addEventListener("click", function (e) {
+      if (e.target.closest("[data-copy]")) copyText(box.querySelector(".speed-setup textarea"));
+    });
+  }
+  var results = st.results || [], last = results[results.length - 1];
+  if (st.running && !speedWasRunning) speedLive = { ping: null, download: null, upload: null };
+  speedWasRunning = !!st.running;
+  if (st.running && st.live) speedLive[st.live.kind] = st.live.value;
+
+  var show = st.running ? { down: speedLive.download, up: speedLive.upload, ping: speedLive.ping }
+    : last ? { down: last.down, up: last.up, ping: last.ping } : { down: null, up: null, ping: null };
+  var active = st.running && st.live ? st.live.kind : null;
+  function num(label, v, unit, kind) {
+    var dim = st.running && active !== kind && v == null;
+    return '<div class="sn' + (dim ? " dim" : "") + '"><span>' + label + "</span><b>" + (v == null ? "–" : esc(v) + "<small>" + unit + "</small>") + "</b></div>";
+  }
+  setHTML(box.querySelector(".speed-nums"),
+    num("Download", mbps(show.down), "Mb/s", "download") + num("Upload", mbps(show.up), "Mb/s", "upload") +
+    num("Ping", show.ping == null ? null : Math.round(show.ping), "ms", "ping"));
+
+  var meta = "";
+  if (!st.running && last) {
+    var bits = [];
+    if (last.isp) bits.push(esc(last.isp));
+    if (last.server) bits.push("tested against " + esc(last.server));
+    meta = (bits.length ? bits.join(", ") + ". " : "") + "Ran " + esc(ago(last.time)) + "." +
+      (last.url ? ' <a href="' + esc(last.url) + '" target="_blank" rel="noopener">Full result</a>' : "");
+  } else if (!st.running) meta = "No tests yet.";
+  setHTML(box.querySelector(".speed-meta"), meta);
+  $("speed-count").textContent = st.vmid ? "Runs in CT " + st.vmid : "";
+
+  var btn = $("speed-btn"), prog = box.querySelector(".prog");
+  btn.disabled = !!st.running;
+  btn.textContent = st.running ? "Testing…" : "Run speed test";
+  prog.hidden = !st.running;
+  if (st.running) {
+    prog.querySelector(".ph").textContent = st.phase || "Working";
+    prog.querySelector("em").style.width = Math.max(3, Math.min(100, (st.progress || 0) * 100)).toFixed(0) + "%";
+  }
+  box.querySelector(".speed-err").textContent = !st.running && st.error ? st.error : "";
+
+  var setup = "";
+  if (st.setup_command && !st.running) {
+    setup = '<div class="speed-setup"><p>' + (st.needs_setup ? "CT " + esc(st.vmid) + " needs the dashboard's key. " : "First time? ") +
+      "Paste this once in the <b>pve → Shell</b>. It lets the dashboard run <code>speedtest</code> in CT " + esc(st.vmid || "") + " and nothing else.</p>" +
+      '<textarea readonly spellcheck="false">' + esc(st.setup_command) + '</textarea><div class="row"><button class="btn" type="button" data-copy>Copy</button></div></div>';
+  }
+  var wrap = box.querySelector(".speed-setup-wrap");
+  if (wrap.__h !== setup) { wrap.innerHTML = setup; wrap.__h = setup; }
+
+  var hist = "";
+  if (results.length > 1) {
+    var max = Math.max.apply(null, results.map(function (r) { return Math.max(r.down, r.up); })) || 1;
+    var n = results.length, w = 100 / n, bars = "";
+    results.forEach(function (r, i) {
+      var x = i * w, hd = r.down / max * 38, hu = r.up / max * 38;
+      var tip = new Date(r.time * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) +
+        ": " + mbps(r.down) + " down, " + mbps(r.up) + " up, " + Math.round(r.ping) + " ms";
+      bars += "<g><title>" + esc(tip) + '</title><rect class="d" x="' + (x + w * 0.14).toFixed(2) + '" y="' + (40 - hd).toFixed(2) + '" width="' + (w * 0.36).toFixed(2) + '" height="' + hd.toFixed(2) + '" rx=".6"/>' +
+        '<rect class="u" x="' + (x + w * 0.52).toFixed(2) + '" y="' + (40 - hu).toFixed(2) + '" width="' + (w * 0.3).toFixed(2) + '" height="' + hu.toFixed(2) + '" rx=".6"/></g>';
+    });
+    hist = '<div class="lbl"><span><span class="k" style="display:inline-block;width:.6rem;height:.6rem;border-radius:2px;background:var(--trace);vertical-align:-.05rem"></span> Download ' +
+      '<span class="k" style="display:inline-block;width:.6rem;height:.6rem;border-radius:2px;background:var(--ink-3);vertical-align:-.05rem;margin-left:.6rem"></span> Upload</span><span>Last ' + n + " tests, best " + mbps(max) + " Mb/s</span></div>" +
+      '<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Speed test history">' + bars + "</svg>";
+  }
+  setHTML(box.querySelector(".speed-hist"), hist);
+}
+function copyText(ta) {
+  if (!ta) return;
+  var text = ta.value;
+  function fallback() {
+    ta.focus(); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    toast(ok ? "Copied" : "Select the text and copy it yourself", !ok);
+  }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { toast("Copied"); }, fallback);
+  else fallback();
+}
+
 /* ---------------------------------------------------------------- render: devices + system */
 function renderDevices(s) {
   var d = s.devices || [];
@@ -817,6 +961,7 @@ function render() {
   renderGuests(S);
   renderCooling(S);
   renderStorage(S);
+  renderSpeed(S);
   renderDevices(S);
   renderSystem(S);
 }
@@ -954,7 +1099,10 @@ function poll() {
   fetch("api/status", { cache: "no-store" }).then(function (r) {
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).then(function (j) { S = j; lastFetchOk = Date.now(); render(); })
+  }).then(function (j) {
+    S = j; lastFetchOk = Date.now(); render();
+    if (S.speedtest && S.speedtest.running) setTimeout(poll, 1000);
+  })
     .catch(function () { if (S) render(); else setHTML($("status"), '<span class="led bad"></span><span>Can\'t reach the dashboard service</span>'); })
     .then(function () { inflight = false; });
 }
@@ -997,6 +1145,14 @@ function makeDemo() {
     G(110, "win11", "qemu", "stopped", 8, 16 * GiB, 0, 0, 0, 128 * GiB),
     G(120, "minecraft", "lxc", "stopped", 4, 8 * GiB, 0, 0, 0, 32 * GiB, ["games"])
   ];
+  guests[1].name = "media-server";
+  guests[1].links = [["Jellyfin", 8096], ["Seerr", 5055], ["Radarr", 7878], ["Sonarr", 8989], ["Prowlarr", 9696], ["qBittorrent", 8080]]
+    .map(function (a, k) { return { name: a[0], url: "http://10.0.0.82:" + a[1], up: k !== 5 }; });
+  var sres = [];
+  for (var q = 11; q >= 0; q--) {
+    sres.push({ time: now - q * 86400 * 0.9 - 3600 * 5, down: 280 + Math.random() * 180, up: 430 + Math.random() * 90, ping: 9 + Math.random() * 12,
+      jitter: 1.2, loss: 0, isp: "AT&T Internet", server: "Windstream, Louisville, KY", url: null });
+  }
   guests.push({ vmid: 9000, name: "debian-13-template", type: "qemu", node: "pve", status: "stopped", template: true, cpus: 2, maxmem: 2 * GiB, maxdisk: 16 * GiB, tags: [] });
   var TB = 1e12, fan = [27, 27, 29, 31, 31, 29];
   return {
@@ -1038,6 +1194,7 @@ function makeDemo() {
     },
     energy: { avg_watts: 187, kwh_month: 137, cost_month: 17.8, currency: "$" },
     history: H,
+    speedtest: { configured: true, vmid: 120, running: false, phase: null, progress: 0, live: null, error: null, needs_setup: false, setup_command: null, results: sres },
     devices: [
       { name: "Orbi router", host: "192.168.1.1", online: true, ms: 0.9 },
       { name: "Gaming PC", host: "192.168.1.20", online: true, ms: 1.4 },
@@ -1069,6 +1226,24 @@ function tickDemo(d) {
   }
   return d;
 }
+function demoSpeed() {
+  var st = S.speedtest, t0 = Date.now(), down = 300 + Math.random() * 170, up = 440 + Math.random() * 70, ping = 10 + Math.random() * 8;
+  st.running = true; st.error = null; st.phase = "Starting CT 120"; st.progress = 0.02; st.live = null;
+  var timer = setInterval(function () {
+    var e = (Date.now() - t0) / 1000;
+    if (e < 2) { st.phase = "Starting CT 120"; st.progress = 0.03; }
+    else if (e < 3) { st.phase = "Checking ping"; st.progress = 0.08; st.live = { kind: "ping", value: ping }; }
+    else if (e < 7) { var f = (e - 3) / 4; st.phase = "Testing download"; st.progress = 0.1 + 0.45 * f; st.live = { kind: "download", value: down * Math.min(1, 0.4 + f) }; }
+    else if (e < 11) { var g = (e - 7) / 4; st.phase = "Testing upload"; st.progress = 0.55 + 0.45 * g; st.live = { kind: "upload", value: up * Math.min(1, 0.4 + g) }; }
+    else {
+      clearInterval(timer);
+      st.results.push({ time: Date.now() / 1000, down: down, up: up, ping: ping, jitter: 1.1, loss: 0, isp: "AT&T Internet", server: "Windstream, Louisville, KY", url: null });
+      if (st.results.length > 24) st.results.shift();
+      st.running = false; st.phase = null; st.live = null; st.progress = 0;
+    }
+    render();
+  }, 500);
+}
 function demoAct(p) {
   var msg = "Done";
   if (p.target === "guest") {
@@ -1081,6 +1256,7 @@ function demoAct(p) {
   } else if (p.target === "uid") { S.ilo.uid = p.op === "on" ? "Lit" : "Off"; msg = p.op === "on" ? "Locator light on" : "Locator light off"; }
   else if (p.target === "host") msg = "Demo mode: the server would " + (p.op === "reboot" ? "reboot" : "shut down") + " now";
   else if (p.target === "power") msg = "Powering on";
+  else if (p.target === "speedtest") { demoSpeed(); msg = "Speed test started"; }
   render();
   return { ok: true, message: msg };
 }

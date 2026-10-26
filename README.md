@@ -7,6 +7,8 @@ A live dashboard for a Proxmox server on HPE hardware. Open it in any browser on
 - All six fans (spinning at their real speed), every temperature sensor, both power supplies
 - Storage pools and the physical drives, shown in the server's drive bays with SMART health
 - Reboot or shut down the host, turn the blue locator light on and off, and power the server on through iLO
+- An internet speed test button that runs Ookla's speedtest in another container and keeps a history
+- Links to the apps running inside each container (Jellyfin, Sonarr, ...) with a light showing whether each one is up
 - Optional ping checks for other things on your network
 
 Want to see it before setting anything up? Run `python3 server.py --demo` and open `http://localhost:8080`.
@@ -83,6 +85,35 @@ Open `http://<container-ip>:8080`. It starts on its own whenever the container b
 - **TV:** open it in the TV's browser (Silk on Fire TV works). Big screens get a three-column layout that fits most things without scrolling.
 - **From outside the house over Tailscale:** the easiest way is to let the Proxmox host share your home network with your tailnet. On the pve shell run `tailscale set --advertise-routes=192.168.1.0/24` (your network's range), then approve the route in the Tailscale admin console. Your phone can then open the same `http://<container-ip>:8080` link from anywhere.
 
+### 6. Optional: speed test button
+
+The dashboard runs Ookla's `speedtest` program inside another container (CT 120 here) over SSH. If that container is off, the dashboard starts it, runs the test, and shuts it back down.
+
+1. Make sure `speedtest` is at `/usr/local/bin/speedtest` in that container. (If it's somewhere else, add `"program": "/path/to/speedtest"` to the speedtest section.)
+2. Add this to `config.json` and run `update.sh` (or restart the dashboard):
+   ```json
+   "speedtest": { "vmid": 120 },
+   ```
+3. The **Internet speed** section on the dashboard now shows a one-line setup command. Copy it and paste it once in the **pve → Shell**. It gives CT 120 the dashboard's SSH key, locked so the key can only run `speedtest` and can't open a shell.
+4. Press **Run speed test**.
+
+Results are saved in `/opt/homelab-dash/data/`, so the history survives restarts and updates. The button doesn't need the PIN since a speed test can't break anything.
+
+### 7. Optional: app links
+
+To get buttons for the apps inside a container, list them under that container's ID (or its name) in `config.json`:
+
+```json
+"links": {
+  "110": [
+    { "name": "Jellyfin", "url": "http://10.0.0.82:8096" },
+    { "name": "Sonarr", "url": "http://10.0.0.82:8989" }
+  ]
+},
+```
+
+Expand that container on the dashboard and the apps show up as buttons, each with a light that's green when the app answers.
+
 ---
 
 ## config.json
@@ -101,6 +132,8 @@ Open `http://<container-ip>:8080`. It starts on its own whenever the container b
 | `proxmox.node` | Your node name (`pve`). Blank picks it automatically. |
 | `ilo.host` | `https://<ilo-ip>` |
 | `ilo.username`, `ilo.password` | The iLO login from step 3. |
+| `speedtest.vmid` | The container that has Ookla's `speedtest` in it. See step 6. Also takes `host` (skip the automatic IP lookup), `program` (path to speedtest) and `stop_after` (`false` leaves the container running). |
+| `links` | Apps to show inside a container, keyed by its ID or name. See step 7. |
 | `devices` | Other things to show as online or offline. Each needs `name` and `host`. Add `"port": 22` to check a port instead of ping (useful for PCs that block ping). Use `[]` for none. |
 | `verify_ssl` | Leave `false`. Proxmox and iLO use self-signed certificates. |
 

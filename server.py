@@ -30,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 CONFIG_PATH = os.environ.get("DASH_CONFIG", os.path.join(HERE, "config.json"))
+DATA = os.environ.get("DASH_DATA", os.path.join(HERE, "data"))   # speed test key + results
 DEMO = "--demo" in sys.argv
 
 HISTORY_POINTS = 360        # one hour at one sample every 10 s
@@ -77,6 +78,19 @@ def load_config():
                 or not all(sect.get(k) and "CHANGE" not in str(sect.get(k)) for k in fields)):
             cfg[key] = None
     cfg["admin_pin"] = str(cfg.get("admin_pin") or "")
+
+    st = cfg.get("speedtest")
+    if not isinstance(st, dict) or st.get("enabled") is False or not (st.get("vmid") or st.get("host")):
+        cfg["speedtest"] = None
+
+    # links: { "110": [ {"name": "Jellyfin", "url": "http://..."} ], "media-server": [...] }
+    links = {}
+    for key, items in (cfg.get("links") or {}).items():
+        good = [{"name": str(i.get("name") or i.get("url")), "url": str(i["url"])}
+                for i in (items or []) if isinstance(i, dict) and i.get("url")]
+        if good:
+            links[str(key).strip().lower()] = good
+    cfg["links"] = links
     return cfg
 
 
@@ -616,6 +630,261 @@ def check_device(dev):
         return None, None
 
 
+def check_url(url):
+    """True if something answers on the URL's host and port."""
+    try:
+        u = urllib.parse.urlparse(url)
+        port = u.port or (443 if u.scheme == "https" else 80)
+        with socket.create_connection((u.hostname, port), timeout=1.5):
+            return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+# --------------------------------------------------------------------------- speed test
+
+SPEEDTEST_ARGS = "--format=jsonl --progress=yes --accept-license --accept-gdpr"
+
+
+class SpeedTest:
+    """Runs Ookla's speedtest inside another container over SSH.
+
+    The key the dashboard uses is limited (with an authorized_keys forced
+    command) to running speedtest, so it can't be used to log in.
+    """
+
+    def __init__(self, cfg, dash):
+        self.cfg = cfg
+        self.dash = dash
+        self.vmid = cfg.get("vmid")
+        self.user = cfg.get("user") or "root"
+        self.program = cfg.get("program") or "/usr/local/bin/speedtest"
+        self.stop_after = cfg.get("stop_after", True)
+        self.key = os.path.join(DATA, "id_ed25519")
+        self.results_file = os.path.join(DATA, "speedtests.json")
+        self.lock = threading.Lock()
+        self.state = {"running": False, "phase": None, "progress": 0.0, "live": None, "error": None, "needs_setup": False}
+        self.last_start = 0
+        self.results = []
+        try:
+            with open(self.results_file, encoding="utf-8") as f:
+                self.results = json.load(f)[-100:]
+        except (OSError, ValueError):
+            pass
+        self.ensure_key()
+
+    def ensure_key(self):
+        if os.path.exists(self.key):
+            return
+        try:
+            os.makedirs(DATA, exist_ok=True)
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "homelab-dash-speedtest", "-f", self.key],
+                           check=True, capture_output=True, timeout=20)
+            log("speed test: created SSH key")
+        except (OSError, subprocess.SubprocessError) as e:
+            log(f"speed test: couldn't create an SSH key in {DATA} ({e}). Is openssh-client installed?")
+
+    def public_key(self):
+        try:
+            with open(self.key + ".pub", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return None
+
+    def setup_command(self):
+        pub = self.public_key()
+        if not pub:
+            return None
+        vmid = self.vmid or "<CT-ID>"
+        line = f'command=\\"{self.program} {SPEEDTEST_ARGS}\\",restrict {pub}'
+        return (f"pct status {vmid} | grep -q running || pct start {vmid}; sleep 5; "
+                f"pct exec {vmid} -- sh -c 'command -v sshd >/dev/null || "
+                f"(apt-get update -qq && apt-get install -y -qq openssh-server); "
+                f"mkdir -p /root/.ssh && chmod 700 /root/.ssh && "
+                f"echo \"{line}\" >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo Done'")
+
+    def set(self, **kw):
+        with self.lock:
+            self.state.update(kw)
+
+    def snapshot(self):
+        with self.lock:
+            st = dict(self.state)
+        st.update({
+            "configured": True,
+            "vmid": self.vmid,
+            "results": self.results[-24:],
+            "setup_command": self.setup_command() if (st["needs_setup"] or not self.results) else None,
+        })
+        return st
+
+    def start(self):
+        with self.lock:
+            if self.state["running"]:
+                raise ValueError("A speed test is already running.")
+            if time.time() - self.last_start < 20:
+                raise ValueError("Give it a few seconds before running another test.")
+            self.last_start = time.time()
+            self.state.update(running=True, phase="Getting ready", progress=0.0, live=None, error=None)
+        threading.Thread(target=self.run, name="speedtest", daemon=True).start()
+
+    def run(self):
+        started_ct = False
+        try:
+            self.ensure_key()  # in case openssh-client was installed after the dashboard started
+            if not os.path.exists(self.key):
+                raise ValueError("The dashboard has no SSH key yet. Run install.sh again (it installs openssh-client).")
+            host, started_ct = self.prepare()
+            result = self.ssh_run(host)
+            self.results.append(result)
+            self.results = self.results[-100:]
+            try:
+                tmp = self.results_file + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(self.results, f)
+                os.replace(tmp, self.results_file)
+            except OSError as e:
+                log(f"speed test: couldn't save results ({e})")
+            self.set(needs_setup=False, error=None)
+            log(f"speed test: {result['down']:.0f} down / {result['up']:.0f} up Mb/s, {result['ping']:.0f} ms")
+        except (UpstreamError, ValueError, OSError, subprocess.SubprocessError) as e:
+            self.set(error=str(e))
+            log(f"speed test failed: {e}")
+        finally:
+            if started_ct and self.stop_after:
+                self.set(phase=f"Shutting CT {self.vmid} back down")
+                try:
+                    node = self.node()
+                    self.dash.pve.post(f"/nodes/{node}/lxc/{int(self.vmid)}/status/shutdown")
+                except (UpstreamError, ValueError) as e:
+                    log(f"speed test: couldn't shut CT {self.vmid} down ({e})")
+            self.set(running=False, phase=None, live=None, progress=0.0)
+            self.dash.kick()
+
+    def node(self):
+        g = self.dash.find_guest(self.vmid, "lxc")
+        return (g or {}).get("node") or self.dash.pve.ensure_node()
+
+    def prepare(self):
+        pve, host, started = self.dash.pve, self.cfg.get("host"), False
+        if self.vmid and pve:
+            node, vmid = self.node(), int(self.vmid)
+            status = (pve.get(f"/nodes/{node}/lxc/{vmid}/status/current") or {}).get("status")
+            if status != "running":
+                self.set(phase=f"Starting CT {vmid}")
+                pve.post(f"/nodes/{node}/lxc/{vmid}/status/start")
+                started = True
+                self.wait(lambda: (pve.get(f"/nodes/{node}/lxc/{vmid}/status/current") or {}).get("status") == "running",
+                          60, f"CT {vmid} didn't start within a minute.")
+            if not host:
+                self.set(phase=f"Finding CT {vmid}'s address")
+                found = {}
+
+                def have_ip():
+                    found["ip"] = self.pick_ipv4(pve.get(f"/nodes/{node}/lxc/{vmid}/interfaces") or [])
+                    return bool(found["ip"])
+                self.wait(have_ip, 60, f"CT {vmid} has no IPv4 address. Set speedtest.host in config.json.")
+                host = found["ip"]
+        if not host:
+            raise ValueError("Set speedtest.vmid (or speedtest.host) in config.json.")
+        self.set(phase="Waiting for SSH")
+        self.wait(lambda: check_url(f"ssh://{host}:22"), 60, f"Nothing is answering SSH at {host}:22.")
+        return host, started
+
+    @staticmethod
+    def pick_ipv4(ifaces):
+        for i in ifaces:
+            if i.get("name") == "lo":
+                continue
+            addrs = [i.get("inet")] + [a.get("ip-address") for a in i.get("ip-addresses") or []
+                                       if a.get("ip-address-type") in (None, "inet", "ipv4")]
+            for a in addrs:
+                ip = (a or "").split("/")[0]
+                if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", ip) and not ip.startswith("127."):
+                    return ip
+        return None
+
+    @staticmethod
+    def wait(cond, seconds, message):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            try:
+                if cond():
+                    return
+            except UpstreamError:
+                pass
+            time.sleep(2)
+        raise ValueError(message)
+
+    def ssh_run(self, host):
+        self.set(phase="Connecting", progress=0.02)
+        cmd = ["ssh", "-i", self.key, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+               "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10", "-o", "LogLevel=ERROR",
+               f"{self.user}@{host}", "speedtest"]
+        env = {"HOME": DATA, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        killer = threading.Timer(180, proc.kill)
+        killer.start()
+        result, errors = None, []
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                kind = ev.get("type")
+                if kind == "testStart":
+                    srv = ev.get("server") or {}
+                    self.set(phase=f"Testing against {srv.get('name') or 'a server'}", progress=0.05)
+                elif kind == "ping":
+                    p = (ev.get("ping") or {})
+                    self.set(phase="Checking ping", progress=0.05 + 0.05 * (p.get("progress") or 0),
+                             live={"kind": "ping", "value": p.get("latency")})
+                elif kind in ("download", "upload"):
+                    d = ev.get(kind) or {}
+                    base = 0.1 if kind == "download" else 0.55
+                    self.set(phase="Testing download" if kind == "download" else "Testing upload",
+                             progress=base + 0.45 * (d.get("progress") or 0),
+                             live={"kind": kind, "value": (d.get("bandwidth") or 0) * 8 / 1e6})
+                elif kind == "result":
+                    result = ev
+                elif kind == "log" and ev.get("level") in ("error", "warning"):
+                    errors.append(ev.get("message") or "")
+            proc.wait(timeout=10)
+        finally:
+            killer.cancel()
+        stderr = (proc.stderr.read() or "").strip()
+        if result:
+            return self.normalize(result)
+        if "Permission denied" in stderr or "publickey" in stderr:
+            self.set(needs_setup=True)
+            raise ValueError(f"CT {self.vmid or host} didn't accept the dashboard's key. Run the setup command below in the pve shell once.")
+        msg = (errors[-1] if errors else "") or (stderr.splitlines()[-1] if stderr else "") or "speedtest finished without a result"
+        if proc.returncode == -9:
+            msg = "The test took longer than 3 minutes and was stopped."
+        raise ValueError(msg)
+
+    @staticmethod
+    def normalize(r):
+        ping = r.get("ping") or {}
+        server = r.get("server") or {}
+        where = ", ".join(x for x in (server.get("name"), server.get("location")) if x)
+        return {
+            "time": time.time(),
+            "down": ((r.get("download") or {}).get("bandwidth") or 0) * 8 / 1e6,
+            "up": ((r.get("upload") or {}).get("bandwidth") or 0) * 8 / 1e6,
+            "ping": ping.get("latency") or 0,
+            "jitter": ping.get("jitter"),
+            "loss": r.get("packetLoss"),
+            "isp": r.get("isp"),
+            "server": where or None,
+            "url": (r.get("result") or {}).get("url"),
+        }
+
+
 # --------------------------------------------------------------------------- dashboard state
 
 class Dashboard:
@@ -630,6 +899,8 @@ class Dashboard:
         self.history = {k: deque(maxlen=HISTORY_POINTS) for k in ("cpu", "mem", "power", "inlet")}
         self.kicks = []
         self.failed_pins = deque(maxlen=10)
+        self.link_status = {}
+        self.speedtest = SpeedTest(cfg["speedtest"], self) if cfg.get("speedtest") else None
 
     # ---- polling loops
     def start(self):
@@ -640,7 +911,23 @@ class Dashboard:
             self.spawn(self.poll_ilo, 10)
         if self.cfg.get("devices"):
             self.spawn(self.poll_devices, 15)
+        if self.cfg.get("links"):
+            self.spawn(self.poll_links, 30)
         self.spawn(self.record_history, HISTORY_EVERY, kickable=False)
+
+    def poll_links(self):
+        urls = {l["url"] for items in self.cfg["links"].values() for l in items}
+        status = {}
+        for url in urls:
+            status[url] = check_url(url)
+        with self.lock:
+            self.link_status = status
+
+    def links_for(self, guest):
+        items = self.cfg["links"].get(str(guest.get("vmid"))) or self.cfg["links"].get(str(guest.get("name") or "").lower())
+        if not items:
+            return None
+        return [{"name": l["name"], "url": l["url"], "up": self.link_status.get(l["url"])} for l in items]
 
     def spawn(self, fn, every, kickable=True):
         kick = threading.Event()
@@ -760,6 +1047,12 @@ class Dashboard:
 
         title = self.cfg.get("title") or ((st["proxmox"] or {}).get("host") or {}).get("name") or (
             self.pve.node if self.pve and self.pve.node else "homelab")
+
+        pve = st["proxmox"]
+        if pve and self.cfg["links"]:
+            pve = dict(pve)
+            pve["guests"] = [dict(g, links=self.links_for(g)) for g in pve.get("guests") or []]
+            st["proxmox"] = pve
         return {
             "now": time.time(),
             "title": title,
@@ -775,6 +1068,7 @@ class Dashboard:
             "energy": energy,
             "history": hist,
             "devices": st["devices"],
+            "speedtest": self.speedtest.snapshot() if self.speedtest else {"configured": False},
         }
 
     # ---- management
@@ -797,6 +1091,13 @@ class Dashboard:
         return None
 
     def act(self, req):
+        if req.get("target") == "speedtest":
+            # Harmless, so it doesn't need the PIN.
+            if not self.speedtest:
+                raise ValueError("The speed test isn't set up. Add a speedtest section to config.json.")
+            self.speedtest.start()
+            log("action: speed test started")
+            return {"ok": True, "message": "Speed test started"}
         if not self.cfg["admin_pin"]:
             raise PermissionError("Controls are off. Set admin_pin in config.json to turn them on.")
         self.check_pin(req.get("pin"))
@@ -943,7 +1244,8 @@ def main():
         dash = Dashboard(cfg)
         dash.start()
         log(f"Proxmox: {'on' if cfg['proxmox'] else 'not set up'}   iLO: {'on' if cfg['ilo'] else 'not set up'}   "
-            f"controls: {'on' if cfg['admin_pin'] else 'off (no admin_pin)'}")
+            f"controls: {'on' if cfg['admin_pin'] else 'off (no admin_pin)'}   "
+            f"speed test: {'on' if cfg['speedtest'] else 'off'}   app links: {sum(len(v) for v in cfg['links'].values())}")
     server = ThreadingHTTPServer((cfg["bind"], int(cfg["port"])), make_handler(dash))
     server.daemon_threads = True
     log(f"Dashboard running at http://{lan_ip()}:{cfg['port']}")
