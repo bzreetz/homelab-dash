@@ -714,7 +714,7 @@ class SpeedTest:
             "configured": True,
             "vmid": self.vmid,
             "results": self.results[-24:],
-            "setup_command": self.setup_command() if (st["needs_setup"] or not self.results) else None,
+            "setup_command": self.setup_command(),
         })
         return st
 
@@ -861,7 +861,7 @@ class SpeedTest:
             return self.normalize(result)
         if "Permission denied" in stderr or "publickey" in stderr:
             self.set(needs_setup=True)
-            raise ValueError(f"CT {self.vmid or host} didn't accept the dashboard's key. Run the setup command below in the pve shell once.")
+            raise ValueError(f"CT {self.vmid or host} didn't accept the dashboard's key. Use Speed test setup at the bottom of the page.")
         msg = (errors[-1] if errors else "") or (stderr.splitlines()[-1] if stderr else "") or "speedtest finished without a result"
         if proc.returncode == -9:
             msg = "The test took longer than 3 minutes and was stopped."

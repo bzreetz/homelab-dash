@@ -94,7 +94,7 @@ The dashboard runs Ookla's `speedtest` program inside another container (CT 120 
    ```json
    "speedtest": { "vmid": 120 },
    ```
-3. The **Internet speed** section on the dashboard now shows a one-line setup command. Copy it and paste it once in the **pve → Shell**. It gives CT 120 the dashboard's SSH key, locked so the key can only run `speedtest` and can't open a shell.
+3. At the very bottom of the dashboard, click **Speed test setup**. Copy the command it shows and paste it once in the **pve → Shell**. It gives CT 120 the dashboard's SSH key, locked so the key can only run `speedtest` and can't open a shell. You only need to do this again if you rebuild either container.
 4. Press **Run speed test**.
 
 Results are saved in `/opt/homelab-dash/data/`, so the history survives restarts and updates. The button doesn't need the PIN since a speed test can't break anything.

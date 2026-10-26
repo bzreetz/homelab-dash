@@ -214,10 +214,11 @@ button{font:inherit;color:inherit}
 .speed-run .prog .pbar{margin-top:.35rem}
 .speed-run .prog .pbar em{transition:width .6s linear}
 .speed-err{color:var(--bad);font-size:.9rem;margin-top:.7rem}
-.speed-setup{margin-top:.9rem;padding:.9rem;background:var(--plate);border:1px solid var(--rule);border-radius:8px}
-.speed-setup p{margin:0 0 .6rem;font-size:.9rem;color:var(--ink-2)}
-.speed-setup textarea{width:100%;height:6.5rem;resize:vertical;background:var(--steel);color:var(--ink);border:1px solid var(--rule);border-radius:6px;padding:.55rem;font:.78rem/1.45 ui-monospace,Menlo,Consolas,monospace}
-.speed-setup .row{display:flex;gap:.6rem;align-items:center;margin-top:.55rem}
+.setup-dialog{width:min(40rem,100%)}
+.setup-dialog textarea{display:block;width:100%;height:8rem;margin-top:1rem;resize:vertical;background:var(--steel);color:var(--ink);border:1px solid var(--rule);border-radius:6px;padding:.6rem;font:.78rem/1.45 ui-monospace,Menlo,Consolas,monospace}
+.foot-actions{margin-top:1.2rem}
+.foot-actions .linkish{font-size:.85rem;color:var(--ink-3)}
+.foot-actions .linkish:hover{color:var(--trace)}
 .speed-hist{margin-top:1.2rem}
 .speed-hist .lbl{display:flex;justify-content:space-between;font-size:.8rem;color:var(--ink-3)}
 .speed-hist svg{display:block;width:100%;height:3.4rem;margin-top:.35rem}
@@ -342,6 +343,7 @@ button{font:inherit;color:inherit}
 
   <section class="system" aria-label="System details">
     <dl class="facts-grid" id="system"></dl>
+    <div class="foot-actions"><button class="linkish" type="button" id="speed-setup-btn" hidden>Speed test setup</button></div>
   </section>
 </div>
 
@@ -360,6 +362,14 @@ button{font:inherit;color:inherit}
         <button class="btn primary" type="submit" id="dlg-go"></button>
       </div>
     </form>
+  </div>
+</div>
+<div class="scrim" id="setup-scrim">
+  <div class="dialog setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <h2 id="setup-title">Speed test setup</h2>
+    <p>Paste this once in the <b>pve → Shell</b>. It gives <span id="setup-ct"></span> the dashboard's SSH key, locked so it can only run <code>speedtest</code>. You only need it again if you rebuild either container.</p>
+    <textarea id="setup-text" readonly spellcheck="false"></textarea>
+    <div class="row"><button class="btn" type="button" id="setup-close">Close</button><button class="btn primary" type="button" id="setup-copy">Copy</button></div>
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -835,7 +845,7 @@ function renderSpeed(s) {
   if (!box.querySelector(".speed-run")) {
     box.innerHTML = '<div class="speed-nums"></div><div class="speed-meta"></div>' +
       '<div class="speed-run"><button class="btn primary" type="button" id="speed-btn">Run speed test</button><div class="prog" hidden><div class="ph"></div><div class="pbar"><em></em></div></div></div>' +
-      '<div class="speed-err" role="alert"></div><div class="speed-setup-wrap"></div><div class="speed-hist"></div>';
+      '<div class="speed-err" role="alert"></div><div class="speed-hist"></div>';
     $("speed-btn").addEventListener("click", function () {
       var b = this;
       b.disabled = true;
@@ -843,9 +853,6 @@ function renderSpeed(s) {
         speedLive = { ping: null, download: null, upload: null };
         setTimeout(poll, 400);
       }).catch(function (e) { b.disabled = false; toast(e.message, true); });
-    });
-    box.addEventListener("click", function (e) {
-      if (e.target.closest("[data-copy]")) copyText(box.querySelector(".speed-setup textarea"));
     });
   }
   var results = st.results || [], last = results[results.length - 1];
@@ -885,14 +892,9 @@ function renderSpeed(s) {
   }
   box.querySelector(".speed-err").textContent = !st.running && st.error ? st.error : "";
 
-  var setup = "";
-  if (st.setup_command && !st.running) {
-    setup = '<div class="speed-setup"><p>' + (st.needs_setup ? "CT " + esc(st.vmid) + " needs the dashboard's key. " : "First time? ") +
-      "Paste this once in the <b>pve → Shell</b>. It lets the dashboard run <code>speedtest</code> in CT " + esc(st.vmid || "") + " and nothing else.</p>" +
-      '<textarea readonly spellcheck="false">' + esc(st.setup_command) + '</textarea><div class="row"><button class="btn" type="button" data-copy>Copy</button></div></div>';
-  }
-  var wrap = box.querySelector(".speed-setup-wrap");
-  if (wrap.__h !== setup) { wrap.innerHTML = setup; wrap.__h = setup; }
+  $("speed-setup-btn").hidden = !st.setup_command;
+  if ($("setup-text").value !== (st.setup_command || "")) $("setup-text").value = st.setup_command || "";
+  $("setup-ct").textContent = st.vmid ? "CT " + st.vmid : "the speed test container";
 
   var hist = "";
   if (results.length > 1) {
@@ -1048,9 +1050,13 @@ function closeDialog() {
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
 $("dlg-cancel").addEventListener("click", closeDialog);
+$("speed-setup-btn").addEventListener("click", function () { $("setup-scrim").classList.add("show"); $("setup-copy").focus(); });
+$("setup-close").addEventListener("click", function () { $("setup-scrim").classList.remove("show"); $("speed-setup-btn").focus(); });
+$("setup-scrim").addEventListener("click", function (e) { if (e.target === this) this.classList.remove("show"); });
+$("setup-copy").addEventListener("click", function () { copyText($("setup-text")); });
 $("scrim").addEventListener("click", function (e) { if (e.target === this) closeDialog(); });
 document.addEventListener("keydown", function (e) {
-  if (e.key === "Escape") { if ($("scrim").classList.contains("show")) closeDialog(); $("power-menu").hidden = true; }
+  if (e.key === "Escape") { if ($("scrim").classList.contains("show")) closeDialog(); $("setup-scrim").classList.remove("show"); $("power-menu").hidden = true; }
 });
 $("dlg-form").addEventListener("submit", function (e) {
   e.preventDefault();
@@ -1194,7 +1200,7 @@ function makeDemo() {
     },
     energy: { avg_watts: 187, kwh_month: 137, cost_month: 17.8, currency: "$" },
     history: H,
-    speedtest: { configured: true, vmid: 120, running: false, phase: null, progress: 0, live: null, error: null, needs_setup: false, setup_command: null, results: sres },
+    speedtest: { configured: true, vmid: 120, running: false, phase: null, progress: 0, live: null, error: null, needs_setup: false, setup_command: "pct status 120 | grep -q running || pct start 120; sleep 5; pct exec 120 -- sh -c '...demo...'", results: sres },
     devices: [
       { name: "Orbi router", host: "192.168.1.1", online: true, ms: 0.9 },
       { name: "Gaming PC", host: "192.168.1.20", online: true, ms: 1.4 },
