@@ -677,7 +677,7 @@ function renderCooling(s) {
   }
   if (!i.fans && !i.temps) { setHTML(box, '<p class="hint">' + esc(i.error || "Waiting for iLO…") + "</p>"); return; }
   if (!box.querySelector(".fans")) {
-    box.innerHTML = '<div class="sub-head">Fans</div><div class="fans"></div><div class="sub-head">Temperatures</div><div class="temps"></div><div class="psu-wrap"></div>';
+    box.innerHTML = '<div class="sub-head">Fans</div><div class="fans"></div><div class="fan-note"></div><div class="sub-head">Temperatures</div><div class="temps"></div><div class="psu-wrap"></div>';
     box.__h = null;
     if (!box.__wired) {
       box.__wired = true;
@@ -687,8 +687,10 @@ function renderCooling(s) {
     }
   }
   var fans = i.fans || [];
-  var avg = fans.length ? fans.reduce(function (a, f) { return a + (f.units === "%" ? f.reading : f.level * 100); }, 0) / fans.length : null;
-  $("cool-count").textContent = fans.length ? fans.length + " fans averaging " + Math.round(avg) + "%" : "";
+  var read = fans.filter(function (f) { return f.reading != null; });
+  var avg = read.length ? read.reduce(function (a, f) { return a + (f.units === "%" ? f.reading : f.level * 100); }, 0) / read.length : null;
+  $("cool-count").textContent = !fans.length ? "" : avg == null ? fans.length + " fans" : fans.length + " fans averaging " + Math.round(avg) + "%";
+  setHTML(box.querySelector(".fan-note"), fans.length && !read.length ? '<p class="hint">iLO lists the fans but isn\'t reporting their speeds' + (i.fan_error ? ": " + esc(i.fan_error) : ".") + "</p>" : "");
 
   var fbox = box.querySelector(".fans");
   fans.forEach(function (f, idx) {

@@ -127,6 +127,15 @@ class Upstream:
                 headers["Content-Type"] = "application/json"
         elif method in ("POST", "PUT", "PATCH"):
             data = b""
+        raw = self.send(method, path, data, headers)
+        if not raw.strip():
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            raise UpstreamError(f"{self.label} sent something that isn't JSON for {path}") from None
+
+    def send(self, method, path, data, headers):
         req = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         try:
             with self.opener.open(req, timeout=self.timeout) as resp:
@@ -140,12 +149,7 @@ class Upstream:
             raise UpstreamError(f"{self.label} at {self.where} didn't answer within {self.timeout} s") from None
         except (ConnectionError, ssl.SSLError, OSError) as e:
             raise UpstreamError(f"Connection to {self.label} failed ({e})") from None
-        if not raw.strip():
-            return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            raise UpstreamError(f"{self.label} sent something that isn't JSON for {path}") from None
+        return raw
 
     def explain_http(self, code, path):
         if code == 401:
@@ -383,9 +387,72 @@ class Ilo:
         self.system = None
         self.manager = None
         self.tick = 0
+        self.username, self.password = cfg["username"], cfg["password"]
+        self.ribcl_fans_cache = None
+        self.ribcl_error = None
 
     def get(self, path):
         return self.api.request("GET", path)
+
+    def ribcl_fans(self):
+        """Fan speeds through iLO's older RIBCL interface.
+
+        Some iLO 4 firmware lists the fans over Redfish without their speed, but
+        RIBCL's GET_EMBEDDED_HEALTH always includes it. Needs only a login.
+        """
+        def attr(s):
+            return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    .replace('"', "&quot;").replace("'", "&apos;"))
+        xml = ('<?xml version="1.0"?>\r\n<RIBCL VERSION="2.0">'
+               f'<LOGIN USER_LOGIN="{attr(self.username)}" PASSWORD="{attr(self.password)}">'
+               '<SERVER_INFO MODE="read"><GET_EMBEDDED_HEALTH /></SERVER_INFO></LOGIN></RIBCL>\r\n')
+        raw = self.api.send("POST", "/ribcl", xml.encode(), {"Content-Type": "text/xml"})
+        text = raw.decode("utf-8", errors="replace")
+        for status, message in re.findall(r'<RESPONSE\s+STATUS="(0x[0-9A-Fa-f]+)"\s+MESSAGE=[\'"]([^\'"]*)', text):
+            if int(status, 16) != 0:
+                raise UpstreamError(f"iLO's RIBCL interface said: {message}")
+        fans = []
+        for block in re.findall(r"<FAN>(.*?)</FAN>", text, re.S):
+            label = re.search(r'<LABEL\s+VALUE\s*=\s*"([^"]*)"', block)
+            status = re.search(r'<STATUS\s+VALUE\s*=\s*"([^"]*)"', block)
+            speed = re.search(r'<SPEED\s+VALUE\s*=\s*"([^"]*)"(?:\s+UNIT\s*=\s*"([^"]*)")?', block)
+            state = status.group(1) if status else None
+            if state and state.lower() in ("not installed", "absent"):
+                continue
+            reading = as_number(speed.group(1)) if speed else None
+            unit = (speed.group(2) or "Percentage") if speed else "Percentage"
+            is_pct = unit.lower().startswith("percent")
+            fans.append({
+                "name": label.group(1) if label else f"Fan {len(fans) + 1}",
+                "reading": reading,
+                "units": "%" if is_pct else "RPM",
+                "level": max(0.0, min(1.0, (reading or 0) / (100 if is_pct else 12000))),
+                "health": "OK" if state in (None, "OK") else state,
+            })
+        return fans
+
+    def fill_fan_speeds(self, data):
+        fans = data["fans"]
+        if fans and any(f["reading"] is not None for f in fans):
+            return
+        if self.ribcl_fans_cache is None or self.tick % 2 == 0:
+            try:
+                self.ribcl_fans_cache = self.ribcl_fans()
+                self.ribcl_error = None
+            except UpstreamError as e:
+                self.ribcl_error = str(e)
+        data["fan_error"] = self.ribcl_error
+        extra = self.ribcl_fans_cache or []
+        if not fans:
+            data["fans"] = extra
+            return
+        by_name = {f["name"].strip().lower(): f for f in extra}
+        for i, f in enumerate(fans):
+            match = by_name.get(f["name"].strip().lower()) or (extra[i] if i < len(extra) else None)
+            if match:
+                f.update(reading=match["reading"], units=match["units"], level=match["level"])
+                if match["health"] != "OK":
+                    f["health"] = match["health"]
 
     def member(self, collection, fallback):
         try:
@@ -414,14 +481,18 @@ class Ilo:
                 self.manager = self.get(p["manager"])
             except UpstreamError:
                 self.manager = {}
+        data = self.normalize(power, thermal, self.system, self.manager)
+        self.fill_fan_speeds(data)
         self.tick += 1
-        return self.normalize(power, thermal, self.system, self.manager)
+        return data
 
     def raw(self, part):
         p = self.discover()
         paths = {"thermal": p["chassis"] + "Thermal/", "power": p["chassis"] + "Power/", "system": p["system"]}
+        if part == "fans":
+            return {"fans": self.ribcl_fans()}
         if part not in paths:
-            raise ValueError("Use /api/raw/thermal, /api/raw/power or /api/raw/system")
+            raise ValueError("Use /api/raw/thermal, /api/raw/fans, /api/raw/power or /api/raw/system")
         return self.get(paths[part])
 
     def refresh_system(self):
