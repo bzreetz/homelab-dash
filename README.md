@@ -137,6 +137,8 @@ Expand that container on the dashboard and the apps show up as buttons, each wit
 | `devices` | Other things to show as online or offline. Each needs `name` and `host`. Add `"port": 22` to check a port instead of ping (useful for PCs that block ping). Use `[]` for none. |
 | `verify_ssl` | Leave `false`. Proxmox and iLO use self-signed certificates. |
 
+Changes to `config.json` apply by themselves a few seconds after you save; no restart needed.
+
 Remove the `ilo` or `proxmox` section (or set `"enabled": false` in it) if you don't have one of them; the page shows what it can.
 
 ---
@@ -159,6 +161,7 @@ journalctl -u homelab-dash -f
 
 | Message | Fix |
 |---|---|
+| config.json has a typo on line ... | Usually a missing comma between entries, or an extra one before `}` or `]`. The dashboard keeps running on your last working settings; fix the line and it reloads by itself within a few seconds. |
 | Proxmox rejected the login (401) | The token ID or secret in config.json is wrong. Make a new token: `pveum user token remove dashboard@pve dash`, then the add command again. |
 | Proxmox refused ... (403) | The role is missing a permission. Re-run the `pveum role add` line as `pveum role modify Dashboard --privs "..."`. |
 | Can't reach Proxmox / iLO | Wrong IP, or the container can't reach that network. Try `curl -k https://<ip>:8006` from inside the container. |

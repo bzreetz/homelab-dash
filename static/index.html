@@ -484,7 +484,8 @@ function alertsFor(s) {
   var a = [], p = s.proxmox || {}, i = s.ilo || {};
   if (p.configured && p.error) a.push(["bad", p.error]);
   if (i.configured && i.error) a.push(["warn", i.error]);
-  if (!p.configured && !i.configured) a.push(["warn", "Nothing is set up yet. Add your Proxmox token and iLO login to config.json."]);
+  if (s.config_error) a.push(["bad", s.config_error]);
+  if (!p.configured && !i.configured && !s.config_error) a.push(["warn", "Nothing is set up yet. Add your Proxmox token and iLO login to config.json."]);
   if (i.health && i.health !== "OK") a.push([i.health === "Critical" ? "bad" : "warn", "iLO reports system health as " + i.health]);
   (s.disks || []).forEach(function (d) {
     var h = String(d.health || "").toUpperCase();

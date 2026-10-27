@@ -58,14 +58,51 @@ DEFAULTS = {
 }
 
 
+LAST_GOOD = os.path.join(DATA, "last-good-config.json")
+
+
+def read_user_config():
+    """Parse config.json. On a typo, fall back to the last version that worked
+    so a missing comma shows up as a warning instead of taking the dashboard down."""
+    with open(CONFIG_PATH, encoding="utf-8") as f:
+        text = f.read()
+    try:
+        user = json.loads(text)
+        if not isinstance(user, dict):
+            raise ValueError("the file should start with { and end with }")
+    except (json.JSONDecodeError, ValueError) as e:
+        if isinstance(e, json.JSONDecodeError):
+            where = f"line {e.lineno}, column {e.colno} ({e.msg})"
+            if "delimiter" in e.msg or "property name" in e.msg:
+                where += ". That's usually a missing comma, or an extra one before a } or ]"
+        else:
+            where = str(e)
+        try:
+            with open(LAST_GOOD, encoding="utf-8") as f:
+                user = json.load(f)
+            return user, f"config.json has a typo on {where}. Using your last working settings until it's fixed."
+        except (OSError, ValueError):
+            return {}, f"config.json has a typo on {where}. Fix it and the dashboard reloads by itself."
+    try:
+        os.makedirs(DATA, exist_ok=True)
+        tmp = LAST_GOOD + ".tmp"
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, LAST_GOOD)
+    except OSError:
+        pass
+    return user, None
+
+
 def load_config():
     cfg = dict(DEFAULTS)
+    cfg["config_error"] = None
     if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            try:
-                cfg.update(json.load(f))
-            except json.JSONDecodeError as e:
-                sys.exit(f"config.json has a typo on line {e.lineno}, column {e.colno}: {e.msg}")
+        user, err = read_user_config()
+        cfg.update(user)
+        cfg["config_error"] = err
+        if err:
+            log(err)
     elif not DEMO:
         sys.exit(f"No config at {CONFIG_PATH}. Copy config.example.json to config.json and fill it in, "
                  f"or run with --demo to preview.")
@@ -78,6 +115,12 @@ def load_config():
                 or not all(sect.get(k) and "CHANGE" not in str(sect.get(k)) for k in fields)):
             cfg[key] = None
     cfg["admin_pin"] = str(cfg.get("admin_pin") or "")
+
+    if not isinstance(cfg.get("devices"), list):
+        cfg["devices"] = []
+    cfg["devices"] = [d for d in cfg["devices"] if isinstance(d, dict) and d.get("host")]
+    if not isinstance(cfg.get("links"), dict):
+        cfg["links"] = {}
 
     st = cfg.get("speedtest")
     if not isinstance(st, dict) or st.get("enabled") is False or not (st.get("vmid") or st.get("host")):
@@ -1103,6 +1146,7 @@ class Dashboard:
         return {
             "now": time.time(),
             "title": title,
+            "config_error": self.cfg.get("config_error"),
             "manage": bool(self.cfg["admin_pin"]),
             "bays": int(self.cfg.get("drive_bays") or 8),
             "temp_unit": "F" if str(self.cfg.get("temp_unit")).upper().startswith("F") else "C",
@@ -1284,8 +1328,27 @@ def lan_ip():
         return "localhost"
 
 
+def watch_config():
+    """Restart this process when config.json is saved, so edits apply without a manual restart."""
+    def mtime():
+        try:
+            return os.stat(CONFIG_PATH).st_mtime
+        except OSError:
+            return None
+    start = mtime()
+    while True:
+        time.sleep(3)
+        now = mtime()
+        if now != start and now is not None:
+            time.sleep(1)  # let the editor finish writing
+            log("config.json changed, reloading")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def main():
     cfg = load_config()
+    if not DEMO:
+        threading.Thread(target=watch_config, name="watch_config", daemon=True).start()
     dash = None
     if DEMO:
         log("Demo mode: showing simulated data, nothing is polled.")
